@@ -1,19 +1,19 @@
 #!/bin/sh
 
-install_prefix="/var/meebo/"
+install_prefix="/var/lounge/"
 
 MODULES="--add-module=`pwd`/nginx_lounge_module"
 
 CFLAGS="--with-cc-opt=`pkg-config --cflags json`"
 LIBS="--with-ld-opt=`pkg-config --libs json`"
 
-PREFIX="--prefix=/var/meebo/nginx"
-SBIN="--sbin-path=/var/meebo/sbin/nginx"
-CONF="--conf-path=/var/meebo/etc/nginx/nginx.conf"
-ACCESS_LOG="--http-log-path=/var/meebo/log/nginx/access.log"
-ERROR_LOG="--error-log-path=/var/meebo/log/nginx/error.log"
-PID="--pid-path=/var/meebo/nginx/pid/nginx.pid"
-LOCK="--lock-path=/var/meebo/nginx/lock/nginx.lock"
+PREFIX="--prefix=/var/lounge/nginx"
+SBIN="--sbin-path=/var/lounge/sbin/nginx"
+CONF="--conf-path=/var/lounge/etc/nginx/nginx.conf"
+ACCESS_LOG="--http-log-path=/var/lounge/log/nginx/access.log"
+ERROR_LOG="--error-log-path=/var/lounge/log/nginx/error.log"
+PID="--pid-path=/var/lounge/nginx/pid/nginx.pid"
+LOCK="--lock-path=/var/lounge/nginx/lock/nginx.lock"
 
 echo "install_prefix = $install_prefix"
 echo "modules = $modules"

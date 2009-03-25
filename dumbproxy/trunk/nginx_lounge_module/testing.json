@@ -1,5 +1,5 @@
 
 {
 	"shard_map": [[0,1], [1,0]],
-	"nodes": [ ["bfp6.dev.meebo.com", 5984], ["bfp7.dev.meebo.com", 5984] ]
+	"nodes": [ ["test_node_1", 5984], ["test_node_2", 5984] ]
 }
