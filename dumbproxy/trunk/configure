@@ -1,0 +1,28 @@
+#!/bin/sh
+
+install_prefix="/var/meebo/"
+
+MODULES="--add-module=`pwd`/nginx_lounge_module"
+
+CFLAGS="--with-cc-opt=`pkg-config --cflags json`"
+LIBS="--with-ld-opt=`pkg-config --libs json`"
+
+PREFIX="--prefix=/var/meebo/nginx"
+SBIN="--sbin-path=/var/meebo/sbin/nginx"
+CONF="--conf-path=/var/meebo/etc/nginx/nginx.conf"
+ACCESS_LOG="--http-log-path=/var/meebo/log/nginx/access.log"
+ERROR_LOG="--error-log-path=/var/meebo/log/nginx/error.log"
+PID="--pid-path=/var/meebo/nginx/pid/nginx.pid"
+LOCK="--lock-path=/var/meebo/nginx/lock/nginx.lock"
+
+echo "install_prefix = $install_prefix"
+echo "modules = $modules"
+echo "debug_flag = $debug_flag"
+echo "Running the following command:"
+echo "nginx/configure --prefix=$install_prefix $modules $debug_flag"
+
+cd nginx
+#./configure --prefix=$install_prefix --with-cc-opt=$CFLAGS --with-ld-opt=$LIBS $modules $debug_flag 
+
+./configure $PREFIX $SBIN $CONF $ACCESS_LOG $ERROR_LOG $PID $LOCK $MODULES $CFLAGS $LIBS
+cd ..

@@ -1,0 +1,50 @@
+#!/bin/sh
+#
+# chkconfig: 3 90 14
+# description: starts and stops the opinmind daemon
+
+# Source function library.
+. /etc/rc.d/init.d/functions
+
+pidfile=/var/meebo/run/pid/opinmindd.pid
+
+start() {
+	echo -n $"Starting Lounge Dumbproxy (NGINX): "
+	daemon /var/meebo/sbin/nginx
+	RETVAL=$?
+	echo
+	return $RETVAL
+}
+
+stop() {
+	echo -n $"Stopping Lounge Dumbproxy (NGINX): "
+	killproc -d 10 /var/meebo/sbin/nginx
+	RETVAL=$?
+	echo
+	return $RETVAL
+}
+
+# See how we were called.
+case "$1" in
+    start)
+	start
+	;;
+    stop)
+	stop
+	;;
+	status)
+	status opinmindd.py
+	;;
+    restart)
+	stop
+	start
+	;;
+    condrestart)
+	;;
+    reload)
+        ;;
+    *)
+	echo $"Usage: $0 {start|stop|restart|condrestart|reload}"
+	;;
+esac
+exit $RETVAL
