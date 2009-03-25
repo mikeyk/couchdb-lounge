@@ -1,0 +1,17 @@
+Meebo Lounge
+Copyright 2009 Meebo
+
+This project includes software developed at Meebo.
+
+Dumbproxy was developed by Shaun Lindsay for Meebo.com, with thanks to Evan
+Miller for his "Nginx development guide" and nginx_upstream_hash module.
+
+Smartproxy was developed by Vijay Ragunathan, Kevin Ferguson and (to a
+lesser degree) Shaun Lindsay for Meebo.com.   
+
+python-lounge was written by Kevin Ferguson
+
+replicator was written by Kevin Ferguson
+
+view_updater was written by Shaun Lindsay
+
