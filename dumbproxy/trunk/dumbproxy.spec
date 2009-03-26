@@ -42,6 +42,7 @@ fi
 cd ..
 
 install -m644 ../conf/nginx.conf /var/lounge/etc/nginx/nginx.conf
+install -m644 ../conf/shards.conf /var/lounge/etc/shards.conf
 install -m755 ../init.d/dumbproxy /etc/init.d/dumbproxy
 
 %clean 

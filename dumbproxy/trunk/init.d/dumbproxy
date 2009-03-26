@@ -2,13 +2,22 @@
 #
 # chkconfig: 3 90 14
 # Source function library.
-. /etc/rc.d/init.d/functions
 
 pidfile=/var/lounge/run/pid/dumbproxy.pid
 
+if [ -f /etc/rc.d/init.d/functions ]; then
+	. /etc/rc.d/init.d/functions
+	START="daemon"
+	STOP="killproc -d 10"
+else
+	. /lib/lsb/init-functions
+	START="start-stop-daemon --start --exec"
+	STOP="start-stop-daemon --stop --exec"
+fi
+
 start() {
 	echo -n $"Starting Lounge Dumbproxy (NGINX): "
-	daemon /var/lounge/sbin/nginx
+	$START /var/lounge/sbin/nginx
 	RETVAL=$?
 	echo
 	return $RETVAL
@@ -16,7 +25,7 @@ start() {
 
 stop() {
 	echo -n $"Stopping Lounge Dumbproxy (NGINX): "
-	killproc -d 10 /var/lounge/sbin/nginx
+	$STOP /var/lounge/sbin/nginx
 	RETVAL=$?
 	echo
 	return $RETVAL
