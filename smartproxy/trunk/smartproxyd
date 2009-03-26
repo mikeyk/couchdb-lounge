@@ -1,0 +1,70 @@
+#!/bin/sh
+#
+# starts/stops smartproxy.py
+#
+# processname: smartproxyd
+# description: daemon for asynchronous calls
+# chkconfig: - 90 14
+#
+#
+
+# Sanity checks.
+TWISTD_BINARY=`which twistd`
+[ -x $TWISTD_BINARY ] || (echo "missing twistd" && exit 1)
+# Source function library.
+. /etc/rc.d/init.d/functions
+
+TWISTED_NAME='smartproxy'
+TWISTED_FILE='/var/lounge/etc/smartproxy.tac'
+TWISTED_PID_DIR='/var/lounge/run/pid'
+TWISTED_PID="$TWISTED_PID_DIR/smartproxyd.pid"
+TWISTED_LOG='/var/lounge/log/smartproxyd.log'
+
+USER=`id -u lounge`
+GROUP=`id -g lounge`
+
+start() {
+    echo -n $"Starting background $TWISTED_NAME: "
+    [ -d $TWISTED_PID_DIR ] || mkdir -p $TWISTED_PID_DIR
+	ulimit -n 32768 # increase fds - placed here for now
+	daemon $TWISTD_BINARY -r epoll -y $TWISTED_FILE --pidfile=$TWISTED_PID --logfile=$TWISTED_LOG -u $USER -g $GROUP 
+	RETVAL=$?
+	chown $USER:$GROUP $TWISTED_PID
+	echo
+	return $RETVAL
+}
+
+stop() {
+    echo -n $"Stopping $TWISTED_NAME: "
+	killproc -p $TWISTED_PID -d 10 twistd
+	RETVAL=$?
+	rm -f $TWISTED_PID
+	echo
+	return $RETVAL
+}
+
+# See how we were called.
+case "$1" in
+    start)
+	start
+	;;
+    stop)
+	stop
+	;;
+    status)
+		status -p $TWISTED_PID $TWISTED_NAME
+        RETVAL=$?
+        ;;
+    restart)
+	stop
+	start
+	;;
+    condrestart)
+	;;
+    reload)
+        ;;
+    *)
+	echo $"Usage: $0 {start|stop|status|restart|condrestart|reload}"
+	;;
+esac
+exit $RETVAL
