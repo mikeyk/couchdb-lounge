@@ -4,8 +4,17 @@ install_prefix="/var/lounge/"
 
 MODULES="--add-module=`pwd`/nginx_lounge_module"
 
-CFLAGS="--with-cc-opt=`pkg-config --cflags json`"
-LIBS="--with-ld-opt=`pkg-config --libs json`"
+JSON_CFLAGS=`pkg-config --cflags json`
+JSON_LIBS=`pkg-config --libs-only-L json`
+
+if [ -z $JSON_CFLAGS ] 
+then
+	echo "json-c not found"
+	exit
+fi
+
+CFLAGS="--with-cc-opt=$JSON_CFLAGS"
+LIBS="--with-ld-opt=$JSON_LIBS"
 
 PREFIX="--prefix=/var/lounge/nginx"
 SBIN="--sbin-path=/var/lounge/sbin/nginx"
@@ -15,14 +24,19 @@ ERROR_LOG="--error-log-path=/var/lounge/log/nginx/error.log"
 PID="--pid-path=/var/lounge/nginx/pid/nginx.pid"
 LOCK="--lock-path=/var/lounge/nginx/lock/nginx.lock"
 
-echo "install_prefix = $install_prefix"
-echo "modules = $modules"
-echo "debug_flag = $debug_flag"
-echo "Running the following command:"
-echo "nginx/configure --prefix=$install_prefix $modules $debug_flag"
+if [ ! -d nginx ]
+then
+	tar xvzf nginx_src/nginx-0.7.22.tar.gz
+	ln -sf nginx-0.7.22 nginx
+fi
+
+if [ ! -d nginx ]
+then
+	echo "Can't untar the nginx src!"
+	exit
+fi
 
 cd nginx
-#./configure --prefix=$install_prefix --with-cc-opt=$CFLAGS --with-ld-opt=$LIBS $modules $debug_flag 
-
+#echo ./configure $PREFIX $SBIN $CONF $ACCESS_LOG $ERROR_LOG $PID $LOCK $MODULES $CFLAGS $LIBS
 ./configure $PREFIX $SBIN $CONF $ACCESS_LOG $ERROR_LOG $PID $LOCK $MODULES $CFLAGS $LIBS
 cd ..
