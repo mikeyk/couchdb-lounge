@@ -1,9 +1,10 @@
 Summary: Lounge Dumb Proxy
 Name: lounge-dumb-proxy
 Version: 1.0
-Release: 1.%{?dist}
+Release: 0
 License: None
 Group: Lounge
+BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root
 
 %description
 A modified version of NGINX that handles sharding and failover of a couch cluster.
@@ -15,7 +16,7 @@ if [ $? -ne 0 ]; then
 fi
 cd nginx-0.7.22
 
-%install
+%build
 cd nginx-0.7.22
 MODULES="--add-module=../../nginx_lounge_module"
 CFLAGS="--with-cc-opt=`pkg-config --cflags json`"
@@ -35,23 +36,33 @@ make
 if [ $? -ne 0 ]; then
   exit $?
 fi
-make install
+cd ..
+
+%install
+cd nginx-0.7.22
+make DESTDIR=$RPM_BUILD_ROOT install
 if [ $? -ne 0 ]; then
   exit $?
 fi
-cd ..
+cd ../..
 
-install -m644 ../conf/nginx.conf /var/lounge/etc/nginx/nginx.conf
-install -m644 ../conf/shards.conf /var/lounge/etc/shards.conf
-install -m755 ../init.d/dumbproxy /etc/init.d/dumbproxy
+echo `pwd`
+
+install -d $RPM_BUILD_ROOT/var/lounge/etc/nginx
+install -d $RPM_BUILD_ROOT/etc/init.d
+install -m644 conf/nginx.conf  $RPM_BUILD_ROOT/var/lounge/etc/nginx/nginx.conf
+install -m644 conf/shards.conf $RPM_BUILD_ROOT/var/lounge/etc/shards.conf
+install -m755 init.d/dumbproxy $RPM_BUILD_ROOT/etc/init.d/dumbproxy
 
 %clean 
+rm -Rf $RPM_BUILD_ROOT
 
 %files
-%defattr(-,lounge,lounge)
+%defattr(-,root,root)
 
 /var/lounge/etc/nginx/
 /var/lounge/nginx/
 /var/lounge/log/nginx/
 /var/lounge/sbin/nginx
 /etc/init.d/dumbproxy
+/var/lounge/etc/shards.conf
