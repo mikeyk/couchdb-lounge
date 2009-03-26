@@ -1,0 +1,6 @@
+/var/lounge/log/view_updater.log {
+	daily
+	rotate 7
+	copytruncate
+	missingok
+}
