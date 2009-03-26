@@ -19,7 +19,7 @@ cd nginx-0.7.22
 cd nginx-0.7.22
 MODULES="--add-module=../../nginx_lounge_module"
 CFLAGS="--with-cc-opt=`pkg-config --cflags json`"
-LIBS="--with-ld-opt=`pkg-config --libs json`"
+LIBS="--with-ld-opt=`pkg-config --libs-only-L json`"
 PREFIX="--prefix=/var/lounge/nginx"
 SBIN="--sbin-path=/var/lounge/sbin/nginx"
 CONF="--conf-path=/var/lounge/etc/nginx/nginx.conf"
