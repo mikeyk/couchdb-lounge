@@ -17,27 +17,35 @@ import copy
 import logging
 import os
 import pycurl
+import random
 import StringIO
 import urllib
 
 db_config = {
 	'local': 'http://localhost:5984/',
-	'dev':   'http://bfp6:6984/',
-	'prod':  'http://lounge:6984/' }
+	'dev':   'http://bfp4:6984/',
+	'prod':  'http://lounge:6984/',
+	'new_dev': 'http://bfp4.com:6984/',
+	}
 db_connectinfo = None
 db_prefix = ''
+
+def random_junk():
+	return ''.join(random.sample("abcdefghijklmnopqrstuvwxyz", 6))
 
 def use_config(cfg, testing=False):
 	global db_connectinfo
 	db_connectinfo = db_config[cfg]
 
+	global db_prefix 
 	if testing: 
 		# for testing: prefix every database with our username
 		# achieves two goals:
 		# 1) don't screw up existing databases
 		# 2) let two users run tests on (for example) dev at the same time
-		global db_prefix 
-		db_prefix = 'test' + os.environ['USER'] + '_'
+		db_prefix = 'test' + os.environ['USER'] + random_junk() + "_"
+	else:
+		db_prefix = ''
 
 # default to production config
 use_config('prod')
@@ -56,8 +64,6 @@ class LoungeError(Exception):
 		if code==404:
 			return NotFound(code, key)
 		elif code==409:
-			return AlreadyExists(code, key)
-		elif code==412:
 			return RevisionConflict(code, key)
 		return cls(code, key)
 
@@ -353,7 +359,7 @@ class DesignDoc(Document):
 	@classmethod
 	def make_key(cls, dbname, docname):
 		cls.db_name = dbname
-		return "_design%2F" + docname
+		return "_design/" + docname
 
 	# we override the url method here because we have different quoting behavior from a regular document
 	# if they do ever fix this in couchdb, we can revert this :)
@@ -370,7 +376,8 @@ class View(Resource):
 
 	@classmethod
 	def make_key(cls, name):
-		return '_view/' + name
+		doc, view = name.split('/')
+		return '_design/' + doc + '/_view/' + view
 
 	@classmethod
 	def execute(cls, db_name, *key, **kwargs):
@@ -381,8 +388,11 @@ class View(Resource):
 			args = kwargs['args']
 			del kwargs['args']
 			for k,v in args.items():
-				# json-encode the args
-				args[k] = cjson.encode(v)
+				# stale=ok is not json-encoded, but stuff like
+				#	startkey=["one", "two"] is json-encoded.
+				if k!='stale':
+					# json-encode the args
+					args[k] = cjson.encode(v)
 		inst._rec = kwargs
 		inst._rec = inst.get_results(args)
 		inst._rec['rows'] = [(row['key'], row['value']) for row in inst._rec['rows']]

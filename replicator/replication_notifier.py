@@ -24,8 +24,10 @@ import pycurl
 import Queue
 import re
 import sys
+import signal
 import simplejson
 import socket
+socket.setdefaulttimeout(900)
 from stat import *
 import StringIO
 import threading
@@ -37,10 +39,14 @@ import lounge
 # TODO some other time use couch.ini for the port
 me = 'http://' + socket.gethostname() + ':5984/'
 
+# when this many documents have been updated, perform the replication
+UPDATES_PER_REPLICATION = 10
+
 shard_map = None
 
 repq = Queue.Queue()
 last_update = {}
+update_count = {}
 
 def i_dont_host(node):
 	return not node.startswith(me)
@@ -70,6 +76,15 @@ def do_background_replication(source, target, **opts):
 	repq.put((source, target, opts, time.time()))
 
 def replicate(shard):
+	global update_count
+	update_count[shard] = update_count.get(shard, 0) + 1
+
+	# don't replicate until we've accumulated 10 updates
+	if update_count[shard] < UPDATES_PER_REPLICATION:
+		return
+
+	update_count[shard] = 0
+
 	# first do full replication
 	source = shard
 	local = me + source
@@ -112,24 +127,26 @@ def main():
 	logging.info("Starting up")
 
 	while True:
-		try:
-			# wait for a line from the database
-			stuff = sys.stdin.readline()
-			if not stuff:
-				time.sleep(3)
-				continue
-			# format: {"type": "updated", "db": "nameofdb"}
-			notification = simplejson.loads(stuff)
+			try:
+				# wait for a line from the database
+				stuff = sys.stdin.readline()
+				if stuff == None:
+					return
+				# format: {"type": "updated", "db": "nameofdb"}
+				notification = simplejson.loads(stuff)
 
-			# check for updated config
-			read_conf_at = read_config_if_changed(read_conf_at)
-			
-			# extract the database name
-			if notification['type']=='updated':
-				db = notification['db'] 
-				replicate(db)
-		except:
-			logging.exception("Unhandled exception in main loop:")
+				# check for updated config
+				read_conf_at = read_config_if_changed(read_conf_at)
+				
+				# extract the database name
+				if notification['type']=='updated':
+					db = notification['db'] 
+					replicate(db)
+			except:
+				logging.exception("error in main loop")
+				pid = os.getpid()
+				os.kill(pid, signal.SIGTERM)
+				sys.exit(0)
 	
 if __name__=='__main__':
 	main()

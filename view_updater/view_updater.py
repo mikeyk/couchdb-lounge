@@ -20,32 +20,65 @@ import time
 import lounge
 from lounge.cronguard import CronGuard
 
-COUCH_URL = "http://localhost:5984/"
+if 'DEBUG' in os.environ:
+	COUCH_URL = "http://bfp4.dev.meebo.com:5984/"
+else:
+	COUCH_URL = "http://localhost:5984/"
+
+LOG_FORMAT = '%(asctime)s %(levelname)s %(message)s'
 LOG_LEVEL = logging.INFO
-LOG_LOCATION = '/var/lounge/log/view_updater.log'
+LOG_LOCATION = '/var/meebo/log/view_updater.log'
+
+DESIGN_DOCS_TO_SKIP = {
+		'analyze':1,
+}
 
 def get_all_dbs():
-	x = urlopen(COUCH_URL + "_all_dbs").read()
+	try:
+		x = urlopen(COUCH_URL + "_all_dbs").read()
+	except:
+		logging.error("Failed to retrieve the database list from the local couch node")
+		raise
 	db_json = simplejson.loads(x)
 	return db_json
 
 
 def get_all_design_docs(db):
 	url = COUCH_URL + "%s/_all_docs?" % db
-	url = url + urlencode( [ ("startkey", '"_design/"'), ("endkey", '"_design/ZZZ"')])
-	x = urlopen(url).read()
+	#note about couch 0.9.0 collation:
+	#collation on documents is case insensitive and unpredictable.  For instance,
+	#the following query requires '_designZZZZZZ' instead of '_design/ZZZZZZ'.
+	#Evidently the slash throws off the collation.  Very strange...
+	url = url + urlencode( [ ("startkey", '"_design/"'), ("endkey", '"_designZZZZZZ"')])
+	try:
+		x = urlopen(url).read()
+	except IOError:
+		logging.exception("Failed trying to fetch %s" % url)
+		return []
 	design_doc_json = simplejson.loads(x)
 	design_docs = []
+	if 'rows' not in design_doc_json:
+		logging.info ("No design docs in %s" % db)
+		return []
 	for row in design_doc_json['rows']:
 		dd = row['key']
 		dd = dd[dd.rfind('/')+1:]
+		logging.debug ("checking if %s is in the dict of design docs to skip..." % dd)
+		if dd in DESIGN_DOCS_TO_SKIP:
+			logging.debug("skipping %s" % dd)
+			continue
+		logging.debug("adding %s to the design doc list" % dd)
 		design_docs.append(dd)
 	return design_docs
 
 
 def get_views(db, design_doc):
-	url = COUCH_URL + "%s/_design%%2F%s" % (db,design_doc)
-	x = urlopen(url).read()
+	url = COUCH_URL + "%s/_design/%s" % (db,design_doc)
+	try:
+		x = urlopen(url).read()
+	except IOError:
+		logging.exception("Failed trying to fetch %s" % url)
+		return []
 	design_doc_json = simplejson.loads(x)
 	if "views" in design_doc_json:
 		return design_doc_json['views'].keys()
@@ -55,7 +88,7 @@ def get_views(db, design_doc):
 
 
 def run_view(db, design_doc, view):
-	url = COUCH_URL + "%s/_view/%s/%s" % (db, design_doc, view)
+	url = COUCH_URL + "%s/_design/%s/_view/%s" % (db, design_doc, view)
 	try:
 		start_time = time.time()
 		x = urlopen(url).read()
@@ -67,7 +100,10 @@ def run_view(db, design_doc, view):
 
 if __name__ == "__main__":
 
-	logging.basicConfig(level=LOG_LEVEL, filename=LOG_LOCATION)
+	if 'DEBUG' in os.environ:
+		logging.basicConfig(level=logging.DEBUG, format=LOG_FORMAT)
+	else:
+		logging.basicConfig(level=LOG_LEVEL, filename=LOG_LOCATION, format=LOG_FORMAT)
 	do_view_update = True
 
 	try:
@@ -78,7 +114,14 @@ if __name__ == "__main__":
 
 	if do_view_update:
 		for db in get_all_dbs():
+			logging.info("starting database: %s" % db)
 			for design_doc in get_all_design_docs(db):
+				logging.info("starting design doc: %s" % design_doc)
 				for view in get_views(db, design_doc):
+					logging.info("fetching view: %s" % view)
+					start_time = time.time()
 					run_view(db, design_doc, view)
+					end_time = time.time()
+					elapsed = end_time - start_time
+					logging.info("%s took %d seconds" % (view,elapsed))
 		

@@ -16,11 +16,13 @@ from test_helpers import *
 class LoungeTestCase(TestCase):
 	"""Guarantees a clean database for each test."""
 	def setUp(self):
+		use_config('dev', testing=True)
 		create_test_db("pytest")
 
 	def tearDown(self):
-		db = Database.find("pytest")
-		db.destroy()
+		Database.find("pytest").destroy()
+		time.sleep(2)
+		pass
 
 	def testBasics(self):
 		"""Test some basic read/write operations."""
@@ -178,14 +180,16 @@ class LoungeTestCase(TestCase):
 		# problem with replication
 		tries = 0
 		view = None
-		while view is None:
-			tries += 1
-			assert tries<30, "Design document never replicated after 30+ seconds."
-			try:
-				view = View.execute('pytest', 'test/test1')
-			except NotFound:
-				view = None
-				time.sleep(1)
+		time.sleep(2)
+		view = View.execute('pytest', 'test/test1')
+		#while view is None:
+		#	tries += 1
+		#	assert tries<30, "Design document never replicated after 30+ seconds."
+		#	try:
+		#		view = View.execute('pytest', 'test/test1')
+		#	except NotFound:
+		#		view = None
+		#		time.sleep(1)
 
 		assert view.total_rows==3
 		assert view.rows[0]==("a", 1)
@@ -264,7 +268,12 @@ class LoungeTestCase(TestCase):
 	def testZeroResponseCode(self):
 		# nginx will give us a zero response code in some weird circumstances.
 		# we should treat it like a 400
-		assert_raises(LoungeError, Resource.find, db_connectinfo + "pytest/a b c")
+<<<<<<< .mine
+		assert_raises(LoungeError, Resource.find, 'http://bfp4.dev.meebo.com:6984/' + "pytest/a b c")
+=======
+		#assert_raises(LoungeError, Resource.find, db_connectinfo + "pytest/a b c")
+		pass
+>>>>>>> .r21231
 
 if __name__=="__main__":
 	# log all REST calls if the DEBUG env var is set
@@ -273,7 +282,7 @@ if __name__=="__main__":
 		console.setLevel(logging.DEBUG)
 		logging.basicConfig(level=logging.DEBUG, handler=console)
 	
-	use_config('dev', testing=True)
+	use_config('new_dev', testing=True)
 	try:
 		main()
 	finally:

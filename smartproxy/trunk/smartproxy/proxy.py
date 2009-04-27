@@ -31,6 +31,26 @@ from twisted.protocols import basic
 from twisted.web import server, resource, client
 from twisted.python.failure import DefaultException
 
+new_couch_nodes = {}
+
+def loadMigrationNodes():
+	new_couch_nodes = cjson.decode(file('/var/meebo/etc/lounge_migration_nodes').read())
+
+def migration_url_rewrite(url):
+	slashes = url.find('//')
+	url_parts = url[slashes+2:].split('/')
+	(host,port) = url_parts[0].split(':')
+	if host in new_couch_nodes:
+		if url_parts[2] != '_view':
+			return url
+		params = {}
+		params['node'] = url_parts[0]
+		params['db'] = url_parts[1]
+		params['design'] = url_parts[3]
+		params['viewname'] = url_parts[4]
+		url = "http://%(node)s/%(db)s/_design/%(design)s/_view/%(viewname)s"
+	return url
+
 def to_reducelist(stuff):
 	return [[[row["key"], ""], row["value"]] for row in stuff.get("rows",[])]
 
@@ -353,6 +373,7 @@ class DbFetcher(HttpFetcher):
 		self._remaining = len(self._remaining_nodes)
 		self._failed = False
 		for url in self._remaining_nodes:
+			url = migration_url_rewrite(url)
 			deferred = client.getPage(url = url, method=self._method)
 			deferred.addCallback(self._onsuccess)
 			deferred.addErrback(self._onerror)
@@ -511,6 +532,8 @@ class HTTPProxy(resource.Resource):
 		self._loadCache()
 		if persistCache:
 			atexit.register(self._persistCache)
+
+		loadMigrationNodes()
 
 		self.in_progress = {}
 
