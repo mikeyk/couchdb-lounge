@@ -18,27 +18,28 @@ TWISTED_PID_DIR='/var/lounge/run/pid'
 TWISTED_PID="$TWISTED_PID_DIR/smartproxyd.pid"
 TWISTED_LOG='/var/lounge/log/smartproxyd.log'
 
+USER=`id -u root`
+GROUP=`id -g root`
+
 # Source function library.
 if [ -f /etc/rc.d/init.d/functions ]
 then
 	. /etc/rc.d/init.d/functions
 	START="daemon"
 	STOP="killproc -p $TWISTED_PID -d 10 twistd"
+	START="$START \"$TWISTD_BINARY -r epoll -y $TWISTED_FILE --pidfile=$TWISTED_PID --logfile=$TWISTED_LOG -u $USER -g $GROUP\""
 else
 	. /lib/lsb/init-functions
-    START="start-stop-daemon --start --exec"
-    STOP="start-stop-daemon --stop --exec twistd"
-
+    START="start-stop-daemon --start --pidfile=$TWISTED_PID --exec"
+    STOP="start-stop-daemon --stop --pidfile=$TWISTED_PID -n twistd"
+	START="$START $TWISTD_BINARY -- -r epoll -y $TWISTED_FILE --pidfile=$TWISTED_PID --logfile=$TWISTED_LOG -u $USER -g $GROUP"
 fi
 
-USER=`id -u root`
-GROUP=`id -g root`
-
 start() {
-    echo -n $"Starting background $TWISTED_NAME: "
+    echo -n $"Starting $TWISTED_NAME: "
     [ -d $TWISTED_PID_DIR ] || mkdir -p $TWISTED_PID_DIR
 	ulimit -n 32768 # increase fds - placed here for now
-	$START "$TWISTD_BINARY -r epoll -y $TWISTED_FILE --pidfile=$TWISTED_PID --logfile=$TWISTED_LOG -u $USER -g $GROUP"
+	$START
 	RETVAL=$?
 	if [ -f $TWISTED_PID ] 
 	then
