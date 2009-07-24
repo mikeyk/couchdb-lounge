@@ -130,7 +130,7 @@ lounge_handler(ngx_http_request_t *r)
 	lounge_main_conf_t 		*lmcf;
     lounge_loc_conf_t  		*rlcf;
 	int 					shard_id, n;
-	char 					db[buffer_size], key[buffer_size];
+	char 					db[buffer_size], key[buffer_size], extra[buffer_size];
 	u_char 					*uri;
 
     rlcf = ngx_http_get_module_loc_conf(r, lounge_module);
@@ -138,10 +138,12 @@ lounge_handler(ngx_http_request_t *r)
 		return NGX_DECLINED;
 	}
 
+	/* copy the uri so we can have a null-terminated uri, letting us
+	 * use sscanf with worrying about length*/
 	uri = ngx_pcalloc(r->pool, r->uri.len+1);
 	ngx_memcpy(uri, r->uri.data, r->uri.len); 
 
-	n = sscanf((char*)uri, "/%1024[^0-9/]%d/%1024[^? ]", db, &shard_id, key);
+	n = sscanf((char*)uri, "/%1024[^0-9/]%d/%1024[^?]", db, &shard_id, key);
 	if (n == 3) {
 		return NGX_DECLINED;
 	}
@@ -152,18 +154,18 @@ lounge_handler(ngx_http_request_t *r)
 			"r->uri.data: %s, r->uri.len: %d", r->uri.data, r->uri.len);
 	
 	/* We're expecting a URI that looks something like:
-	 * /<DATABASE>/<KEY>[?<QUERYSTRING>]
+	 * /<DATABASE>/<KEY>[/<ATTACHMENT>][?<QUERYSTRING>]
 	 * e.g. 	/targeting/some_key
 	 *  		/targeting/some_key?vijay=hobbit
 	 */
-	n = sscanf((char*)uri, "/%1024[^/]/%1024[^? ]", db, key);
+	n = sscanf((char*)uri, "/%1024[^/]/%1024[^?/]%1024[^\n]", db, key, extra);
 
 	ngx_log_debug2(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
 			"db: %s\nkey: %s\n", db, key);
 
 	if (n < 2) {
 		ngx_log_debug1(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
-			"sscanf only matched %d (should have been 2) -- declining to rewrite this url.", n);
+			"sscanf only matched %d (should have been 2-3) -- declining to rewrite this url.", n);
 		return NGX_DECLINED;
 	}
 
@@ -178,7 +180,18 @@ lounge_handler(ngx_http_request_t *r)
 	ngx_uint_t crc32 = (ngx_crc32_short((u_char *)key, strlen(key)) >> 16) & 0x7fff;
 	shard_id = crc32 % lmcf->num_shards;
 
-	r->uri.len = snprintf((char*)r->uri.data, new_uri_len, "/%s%d/%s", db, shard_id, key);
+	if (n == 2) {
+		/* uri was of the form:
+		 * /<DATABASE>/<KEY>
+		 */
+		r->uri.len = snprintf((char*)r->uri.data, new_uri_len, "/%s%d/%s", db, shard_id, key);
+	} else if (n == 3) {
+		/* uri was either:
+		 * /<DATABASE>/<KEY>/<ATTACHMENT>
+		 * /<DATABASE>/<KEY><QUERYSTRING>
+		 */
+		r->uri.len = snprintf((char*)r->uri.data, new_uri_len, "/%s%d/%s%s", db, shard_id, key, extra);
+	}
 
 	if (r->uri.len >= new_uri_len) {
 		return NGX_ERROR;
