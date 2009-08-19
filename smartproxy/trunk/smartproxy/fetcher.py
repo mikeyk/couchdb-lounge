@@ -180,26 +180,33 @@ class AllDbFetcher(HttpFetcher):
 		dbs = dict([(self._config.get_db_from_shard(shard), 1) for shard in shards])
 		self._deferred.callback(dbs.keys())
 
+def getPageWithHeaders(url, *args, **kwargs):
+	# basically a clone of client.getPage, but with a handle on the factory
+	# so we can pull the headers later
+	scheme, host, port, path = client._parse(url)
+	factory = client.HTTPClientFactory(url, *args, **kwargs)
+	reactor.connectTCP(host, port, factory)
+	return factory
+
 class ProxyFetcher(HttpFetcher):
 	"""Pass along a GET, POST, or PUT."""
-	def __init__(self, name, nodes, method, body, deferred, client_queue):
+	def __init__(self, name, nodes, method, headers, body, deferred, client_queue):
 		HttpFetcher.__init__(self, name, nodes, deferred, client_queue)
 		log.msg ('ProxyFetcher, nodes: %s' % nodes)
 		self._method = method
+		self._headers = headers
 		self._body = body
 
 	def fetch(self):
 		url = self._remaining_nodes[0]
 		self._remaining_nodes = self._remaining_nodes[1:]
 		self._remaining_nodes = []
-		log.msg ("ProxyFetcher.fetch, url: %s" % url)
-		deferred = client.getPage(url, method=self._method, postdata=self._body)
-		deferred.addCallback(self._onsuccess)
-		deferred.addErrback(self._onerror)
-
+		self.factory = getPageWithHeaders(url, method=self._method, postdata=self._body, headers=self._headers)
+		self.factory.deferred.addCallback(self._onsuccess)
+		self.factory.deferred.addErrback(self._onerror)
 
 	def _onsuccess(self, page):
-		self._deferred.callback(page)
+		self._deferred.callback((self.factory.response_headers, page))
 
 	def _onerror(self, data):
 		log.msg("unable to fetch from node %s" % self._name)

@@ -301,8 +301,15 @@ class HTTPProxy(resource.Resource):
 	def proxy_special(self, request, method):
 		"""Proxy a special document to a single shard (any shard will do, but start with the first)"""
 		deferred = defer.Deferred()
-		deferred.addCallback(lambda s:
-									(request.write(s+"\n"), request.finish()))
+
+		def handle_success(params):
+			headers, doc = params
+			for k in headers:
+				if len(headers[k])>0:
+					request.setHeader(k, headers[k][0])
+			request.write(doc)
+			request.finish()
+		deferred.addCallback(handle_success)
 
 		def handle_error(s):
 			# if we get back some non-http response type error, we should
@@ -327,7 +334,7 @@ class HTTPProxy(resource.Resource):
 		body = ''
 		if method=='PUT' or method=='POST':
 			body = request.content.read()
-		fetcher = ProxyFetcher("proxy", primary_urls, method, body, deferred, self.client_queue)
+		fetcher = ProxyFetcher("proxy", primary_urls, method, request.getAllHeaders(), body, deferred, self.client_queue)
 		fetcher.fetch()
 		return server.NOT_DONE_YET
 
