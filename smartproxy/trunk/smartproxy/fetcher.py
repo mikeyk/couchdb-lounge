@@ -48,7 +48,6 @@ class MapResultFetcher(HttpFetcher):
 		self._reducer = reducer
 
 	def _onsuccess(self, page):
-		log.debug ("MapResultFetcher: shard %s result %s" % (self._name, page))
 		self._reducer.process_map(page)
 
 class DbFetcher(HttpFetcher):
@@ -116,7 +115,7 @@ class DbGetter(DbFetcher):
 			self._deferred.callback(self._acc)
 
 class ReduceFunctionFetcher(HttpFetcher):
-	def __init__(self, config, nodes, database, uri, view, args, deferred, client_queue, reduce_queue):
+	def __init__(self, config, nodes, database, uri, view, args, deferred, client_queue, reduce_queue, options={}):
 		HttpFetcher.__init__(self, "reduce_func", nodes, deferred, client_queue)
 		self._config = config
 		self._view = view
@@ -126,6 +125,15 @@ class ReduceFunctionFetcher(HttpFetcher):
 		self._reduce_queue = reduce_queue
 		self._client_queue = client_queue
 		self._failed = False
+
+		self._do_reduce = (options.get("reduce","true")=="true")
+	
+	def fetch(self):
+		if self._do_reduce:
+			return HttpFetcher.fetch(self)
+		# if reduce=false, then we don't have to pull the reduce func out
+		# of the design doc.  Just go straight to the view
+		return self._onsuccess("{}")
 
 	def _onsuccess(self, page):
 		design_doc = cjson.decode(page)

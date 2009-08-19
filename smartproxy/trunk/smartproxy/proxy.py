@@ -184,8 +184,12 @@ class HTTPProxy(resource.Resource):
 			view = parts[3]
 			design_doc = "_design%2F" + parts[2]
 		# strip query string from view name
+		qs = ""
+		options = {}
 		if '?' in view:
-			view = view[0:view.find('?')]
+			# TODO why aren't we using qsparse or something?
+			view, qs = view.split("?")
+			options = dict([kv.split("=") for kv in qs.split("&")])
 
 		uri_no_db = uri[ uri.find('/')+1:]
 
@@ -265,7 +269,7 @@ class HTTPProxy(resource.Resource):
 			request.finish()
 		deferred.addErrback(handle_error)
 
-		r = ReduceFunctionFetcher(self.conf_data, primary_urls, database, uri, view, request.args, deferred, self.client_queue, self.reduce_queue)
+		r = ReduceFunctionFetcher(self.conf_data, primary_urls, database, uri, view, request.args, deferred, self.client_queue, self.reduce_queue, options)
 		r.fetch()
 		# we have a cached copy; we're just processing the request to replace it
 		if cached_result:
