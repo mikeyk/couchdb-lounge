@@ -18,7 +18,7 @@ from twisted.web import server, resource, client
 from twisted.python.failure import DefaultException
 
 def to_reducelist(stuff):
-	return [[[row["key"], ""], row["value"]] for row in stuff.get("rows",[])]
+	return [row["value"] for row in stuff.get("rows",[])]
 
 def split_by_key(rows):
 	rv = []
@@ -218,7 +218,7 @@ class Reducer:
 		inp = merge(a, b) #merge two sorted lists together
 
 		if self.reduce_func:
-			args = [ (key, ["reduce", [self.reduce_func], to_reducelist(chunk)]) for key,chunk in split_by_key(inp["rows"])]
+			args = [ (key, ["rereduce", [self.reduce_func], to_reducelist(chunk)]) for key,chunk in split_by_key(inp["rows"])]
 			lines = [cjson.encode(chunk) for key, chunk in args]
 			keys = [key for key,chunk in args]
 			#TODO: maybe this could be lines,keys = zip(*(key, simplejson.dumps(chunk) for key, chunk in args))
