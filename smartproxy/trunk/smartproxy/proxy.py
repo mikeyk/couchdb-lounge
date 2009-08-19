@@ -31,23 +31,9 @@ from twisted.protocols import basic
 from twisted.web import server, resource, client
 from twisted.python.failure import DefaultException
 
-def to_reducelist(stuff):
-	return [[[row["key"], ""], row["value"]] for row in stuff.get("rows",[])]
+from fetcher import HttpFetcher, MapResultFetcher, DbFetcher, DbGetter, ReduceFunctionFetcher, AllDbFetcher, ProxyFetcher
 
-def split_by_key(rows):
-	rv = []
-	cur = []
-	prev = None
-	for row in rows:
-		if row["key"]!=prev:
-			if len(cur)>0:
-				rv.append((prev, {"rows": cur}))
-			cur = []
-		cur.append(row)
-		prev = row["key"]
-	if len(cur)>0:
-		rv.append((prev, {"rows": cur}))
-	return rv
+from reducer import ReduceQueue, ReducerProcessProtocol, Reducer, AllDocsReducer
 
 def parse_uri(uri):
 	query = ''
@@ -61,58 +47,18 @@ def parse_uri(uri):
 	assert _view=='_view'
 	return database, _view, document, view
 
-def dup_merge(rows1, rows2, compare=cmp):
-	"""Merge the two results, preserving duplicates"""
-	out = []
-	i,j = 0,0
-	while i<len(rows1) and j<len(rows2):
-		if compare(rows1[i]["key"], rows2[j]["key"])<0:
-			out.append(rows1[i])
-			i += 1
-		else:
-			out.append(rows2[j])
-			j += 1
-	if i<len(rows1):
-		out += rows1[i:]
-	if j<len(rows2):
-		out += rows2[j:]
-	return out
 
-def unique_merge(rows1, rows2, compare=cmp):
-	"""Merge the results from r2 into r1, removing duplicates."""
-	out = []
-	i,j = 0,0
-	while i<len(rows1) and j<len(rows2):
-		if compare(rows1[i]["key"], rows2[j]["key"])<0:
-			out.append(rows1[i])
-		else:
-			out.append(rows2[j])
-		# advance both until we no longer match
-		while i<len(rows1) and compare(rows1[i]["key"], out[-1]["key"])==0:
-			i += 1
-		while j<len(rows2) and compare(rows2[j]["key"], out[-1]["key"])==0:
-			j += 1
-	if i<len(rows1):
-		out += rows1[i:]
-	if j<len(rows2):
-		out += rows2[j:]
-	return out
-
-def merge(r1, r2, compare=cmp, unique=False):
-	"""Merge the results from r2 into r1."""
-	rows1 = r1["rows"]
-	rows2 = r2["rows"]
-	merge_fn = unique and unique_merge or dup_merge
-	r1["rows"] = merge_fn(rows1, rows2, compare)
-	if "total_rows" in r2:
-		if not ("total_rows" in r1):
-			r1["total_rows"] = 0
-		r1["total_rows"] += r2["total_rows"]
-	if "offset" in r2:
-		if not ("offset" in r1):
-			r1["offset"] = 0
-		r1["offset"] += r2["offset"]
-	return r1
+def should_regenerate(now, cached_at, cachetime):
+	age = now - cached_at
+	time_left = cachetime - age
+	# probably is 0.0 at 5 minutes before expire, 1.0 at expire time, linear
+	# in between
+	if time_left > 5*60:
+		return False
+	if time_left <= 0:
+		return True
+	p = 1 - (time_left/float(5*60))
+	return random.random() < p
 
 class ClientQueue:
 	def __init__(self, pool_size):
@@ -154,327 +100,6 @@ class ClientQueue:
 		else:
 			logging.debug("ClientQueue: queue size %d, reqs out %d" % (len(self.queue), self.count))
 
-class ReduceQueue:
-	def __init__(self, pool_size):
-		self.queue = []
-		self.pool = []
-		self.started = False
-		self.pool_size = pool_size
-		self.process = "/usr/bin/couchjs /usr/share/couchdb/server/main.js".split()
-	
-	def start_reducers(self):
-		# we can't do this until after the reactor starts.
-		for i in range(self.pool_size):
-			rPP = ReducerProcessProtocol()
-			reactor.spawnProcess(rPP, self.process[0], self.process)
-		self.started = True
-
-	def enqueue(self, keys, lines, cb):
-		# Accept some data for the reducer pool.
-		if not self.started:
-			self.start_reducers()
-		self.queue.append((keys, lines, cb))
-		self.next()
-	
-	def return_to_pool(self, reducer):
-		# A reducer calls this when it's finished.
-		self.pool.append(reducer)
-		self.next()
-	
-	def next(self):
-		# if we have something in the queue, and an available reducer, take care of it
-		if len(self.queue)>0 and len(self.pool)>0:
-			keys, lines, cb = self.queue.pop(0)
-			reducer = self.pool.pop(0)
-
-			def reduce_finished(response):
-				logging.debug("ReduceQueue: success, queue size %d, pool size %d" % (len(self.queue), len(self.pool)))
-				self.return_to_pool(reducer)
-				cb(response)
-
-			def reduce_failed(*args, **kwargs):
-				logging.debug("ReduceQueue: failure, queue size %d, pool size %d" % (len(self.queue), len(self.pool)))
-				self.return_to_pool(reducer)
-
-			reducer.feed(keys, lines, reduce_finished, reduce_failed)
-		else:
-			logging.debug("ReduceQueue: success, queue size %d, pool size %d" % (len(self.queue), len(self.pool)))
-
-class ReducerProcessProtocol(protocol.ProcessProtocol):
-	def feed(self, keys, lines, fn, err_fn):
-		self._deferred = defer.Deferred()
-		self._deferred.addCallback(fn)
-		self._deferred.addErrback(err_fn)
-
-		self.keys = keys
-		self.lines = lines
-		self.response = ""
-
-		for line in self.lines:
-			logging.debug("Sending line to reducer %s" % line)
-			self.transport.writeToChild(0, line + "\r\n")
-		logging.debug("done sending data")
-
-	def connectionMade(self):
-		# tell the reduce queue we are ready for action
-		reduce_queue.return_to_pool(self)
-
-	def childDataReceived(self, childFD, response):
-		logging.debug("Received data from reducer %s" % response)
-		if childFD == 1:
-			self.response += response
-			# should get one line back for each line we sent (plus one for trailing newline)
-			response_lines = len(self.response.split("\n"))
-			if response_lines>len(self.lines):
-				self._deferred.callback( (self.keys, self.response) )
-
-class Reducer:
-	def __init__(self, reduce_func, num_entries, args, deferred):
-		self.reduce_func = reduce_func
-		self.num_entries_remaining = num_entries
-		self.process = "/usr/bin/couchjs /usr/share/couchdb/server/main.js".split()
-		self.queue = []
-		self.reduce_deferred = deferred
-		self.reduces_out = 0
-		self.count = None
-		if 'count' in args:
-			self.count = int(args['count'][0])
-
-	def process_map(self, data):
-		#TODO: check to make sure this doesn't go less than 0
-		self.num_entries_remaining = self.num_entries_remaining - 1
-		try:
-			results = cjson.decode(data)
-		except:
-			logging.exception('Could not json decode: %s' % data)
-			results = {'rows': []}
-		#result => {'rows' : [ {key: key1, value:value1}, {key:key2, value:value2}]}
-		self.queue_data(results)
-
-	def process_reduce(self, args):
-		self.reduces_out -= 1
-		keys, data = args
-		entries = data.split("\n")
-		logging.debug("in process reduce: %s %s" % (keys, entries))
-		results = [cjson.decode(entry) for entry in entries if len(entry) > 0]
-		#keys = [key1, key2]
-		#results = [ [success_for_key1, [value_from_fn1, value_from_fn2]], [success_for_key2, [value_from_fn1, value_from_fn2]]]
-		r = []
-		for k, v in zip(keys, [val[0] for s,val in results]):
-			r.append( dict(key=k, value=v) )
-		self.queue_data(dict(rows=r))
-
-	def queue_data(self, data):
-		self.queue.append(data)
-		self.__reduce()
-	
-	def _do_reduce(self, a, b):
-		"""Actually combine two documents into one.
-
-		Override this to get different reduce behaviour.
-		"""
-		inp = merge(a, b) #merge two sorted lists together
-
-		if self.reduce_func:
-			args = [ (key, ["reduce", [self.reduce_func], to_reducelist(chunk)]) for key,chunk in split_by_key(inp["rows"])]
-			lines = [cjson.encode(chunk) for key, chunk in args]
-			keys = [key for key,chunk in args]
-			#TODO: maybe this could be lines,keys = zip(*(key, simplejson.dumps(chunk) for key, chunk in args))
-			self.reduces_out += 1
-			reduce_queue.enqueue(keys, lines, self.process_reduce)
-		else:
-			# no reduce function; just merge
-			self.queue_data(inp)
-
-	def __reduce(self):
-		"""Pull stuff off the queue."""
-		#only need to reduce if there is more than one item in the queue
-		if len(self.queue) == 1:
-			#if we've received all the results from all the shards
-			#and the queue only has 1 element in it, then we're done reducing
-			if self.num_entries_remaining == 0 and self.reduces_out == 0:
-				# if this was a count query, slice stuff off
-				if self.count is not None:
-					self.queue[0]['rows'] = self.queue[0]['rows'][0:self.count]
-				self.reduce_deferred.callback(cjson.encode(self.queue[0]))
-			return
-
-		a,b = self.queue[:2]
-		self.queue = self.queue[2:]
-		# hand the work off to _do_reduce, which we can override
-		self._do_reduce(a,b)
-
-	def get_deferred(self):
-		return self.reduce_deferred
-
-class AllDocsReducer(Reducer):
-	def _do_reduce(self, a, b):
-		# merge and unique.  no reduce
-		self.queue_data(merge(a, b, unique=True))
-
-class HttpFetcher:
-	def __init__(self, name, nodes, deferred):
-		self._name = name
-		self._remaining_nodes = nodes
-		self._deferred = deferred
-
-	def fetch(self):
-		url = self._remaining_nodes[0]
-		self._remaining_nodes = self._remaining_nodes[1:]
-		client_queue.enqueue(url, self._onsuccess, self._onerror)
-
-	def _onsuccess(self, data):
-		pass
-
-	def _onerror(self, data):
-		logging.warning("Unable to fetch data from node %s" % data)
-		if len(self._remaining_nodes) == 0:
-			logging.warning("unable to fetch data from shard %s.  Failing" % self._name)
-			self._deferred.errback(data)
-		else:
-			self.fetch()
-
-class MapResultFetcher(HttpFetcher):
-
-	def __init__(self, shard, nodes, reducer, deferred):
-		HttpFetcher.__init__(self, shard, nodes, deferred)
-		self._reducer = reducer
-
-	def _onsuccess(self, page):
-		self._reducer.process_map(page)
-
-class DbFetcher(HttpFetcher):
-	"""Perform an HTTP request on all shards in a database."""
-	def __init__(self, config, nodes, deferred, method):
-		self._method = method
-		HttpFetcher.__init__(self, config, nodes, deferred)
-
-	def fetch(self):
-		self._remaining = len(self._remaining_nodes)
-		self._failed = False
-		for url in self._remaining_nodes:
-			deferred = client.getPage(url = url, method=self._method)
-			deferred.addCallback(self._onsuccess)
-			deferred.addErrback(self._onerror)
-	
-	def _onsuccess(self, data):
-		self._remaining -= 1
-		if self._remaining < 1:
-			# can't call the deferred twice
-			if not self._failed:
-				self._deferred.callback(data)
-
-	def _onerror(self, data):
-		# don't retry on our all-database operations
-		if not self._failed:
-			# prevent from calling the errback twice
-			logging.warning("unable to fetch from node %s; db operation %s failed" % (data, self._name))
-			self._failed = True
-			self._deferred.errback(data)
-
-class DbGetter(DbFetcher):
-	"""Get info about every shard of a database and accumulate the results."""
-	def __init__(self, config, nodes, deferred, name):
-		DbFetcher.__init__(self, config, nodes, deferred, 'GET')
-		self._acc = {"db_name": name, "doc_count": 0, "doc_del_count": 0, "update_seq": 0, "purge_seq": 0, "compact_running": False, "disk_size": 0,
-			"compact_running_shards": [], # if compact is running, which shards?
-			"update_seq_shards": {},      # aggregate update_seq isn't really relevant
-			"purge_seq_shards": {},       # ditto purge_seq
-			}
-	
-	def _onsuccess(self, data):
-		# accumulate results
-		res = cjson.decode(data)
-		self._acc["doc_count"] += res.get("doc_count",0)
-		self._acc["doc_del_count"] += res.get("doc_del_count",0)
-		self._acc["disk_size"] += res.get("disk_size",0)
-		self._acc["compact_running"] = self._acc["compact_running"] or res.get("compact_running", False)
-		if res.get("compact_running", False):
-			self._acc["compact_running_shards"].append(res["db_name"])
-
-		# these will be kinda meaningless...
-		if "update_seq" in res:
-			# so we aggregate per-shard update/purge sequences
-			self._acc["update_seq_shards"][res["db_name"]] = res["update_seq"]
-			if res["update_seq"] > self._acc["update_seq"]:
-				self._acc["update_seq"] = res["update_seq"]
-		if "purge_seq" in res:
-			self._acc["purge_seq_shards"][res["db_name"]] = res["purge_seq"]
-			if res["purge_seq"] > self._acc["purge_seq"]:
-				self._acc["purge_seq"] = res["purge_seq"]
-
-		self._remaining -= 1
-		if self._remaining < 1:
-			self._deferred.callback(self._acc)
-
-class ReduceFunctionFetcher(HttpFetcher):
-	def __init__(self, config, nodes, database, uri, view, args, deferred):
-		HttpFetcher.__init__(self, "reduce_func", nodes, deferred)
-		self._config = config
-		self._view = view
-		self._database = database
-		self._uri = uri
-		self._args = args
-
-	def _onsuccess(self, page):
-		design_doc = cjson.decode(page)
-		reduce_func = design_doc.get("views",{}).get(self._view, {}).get("reduce", None)
-		if reduce_func is not None:
-			reduce_func = reduce_func.replace("\n","")
-		shards = self._config.shards(self._database)
-		reducer = Reducer(reduce_func, len(shards), self._args, self._deferred)
-
-		for shard in shards:
-			nodes = self._config.nodes(shard)
-			urls = ["/".join([node, self._uri]) for node in nodes]
-			fetcher = MapResultFetcher(shard, urls, reducer, self._deferred)
-			fetcher.fetch()
-
-class AllDbFetcher(HttpFetcher):
-	def __init__(self, config, nodes, deferred):
-		HttpFetcher.__init__(self, "_all_dbs", nodes, deferred)
-		self._config = config
-	
-	def _onsuccess(self, page):
-		# in is a list like ["test71", "test22", "funstuff102", ...]
-		# out is a list like ["test", "funstuff", ...]
-		shards = cjson.decode(page)
-		dbs = dict([(self._config.get_db_from_shard(shard), 1) for shard in shards])
-		self._deferred.callback(dbs.keys())
-
-class ProxyFetcher(HttpFetcher):
-	"""Pass along a GET, POST, or PUT."""
-	def __init__(self, name, nodes, method, body, deferred):
-		HttpFetcher.__init__(self, name, nodes, deferred)
-		self._method = method
-		self._body = body
-
-	def fetch(self):
-		url = self._remaining_nodes[0]
-		self._remaining_nodes = self._remaining_nodes[1:]
-		self._remaining_nodes = []
-		deferred = client.getPage(url = url, method=self._method, postdata=self._body)
-		deferred.addCallback(self._onsuccess)
-		deferred.addErrback(self._onerror)
-
-	def _onsuccess(self, page):
-		self._deferred.callback(page)
-
-	def _onerror(self, data):
-		logging.warning("unable to fetch from node %s" % self._name)
-		self._deferred.errback(data)
-
-def should_regenerate(now, cached_at, cachetime):
-	age = now - cached_at
-	time_left = cachetime - age
-	# probably is 0.0 at 5 minutes before expire, 1.0 at expire time, linear
-	# in between
-	if time_left > 5*60:
-		return False
-	if time_left <= 0:
-		return True
-	p = 1 - (time_left/float(5*60))
-	return random.random() < p
 
 class HTTPProxy(resource.Resource):
 	isLeaf = True
@@ -488,10 +113,8 @@ class HTTPProxy(resource.Resource):
 		"""
 		self.prefs = prefs
 
-		global reduce_queue
-		global client_queue
-		reduce_queue = ReduceQueue(self.prefs.get_pref("/reduce_pool_size"))
-		client_queue = ClientQueue(self.prefs.get_pref("/client_pool_size"))
+		self.reduce_queue = ReduceQueue(self.prefs.get_pref("/reduce_pool_size"))
+		self.client_queue = ClientQueue(self.prefs.get_pref("/client_pool_size"))
 
 		self.__last_load_time = 0
 		self.__loadConfig
@@ -548,9 +171,29 @@ class HTTPProxy(resource.Resource):
 	def render_view(self, request):
 		"""Farm out a view query to all nodes and combine the results."""
 		request.setHeader('Content-Type', 'application/json')
-		database, _view, document, view = parse_uri(request.uri)
+		#database, _view, document, view = parse_uri(request.uri)
+		uri = request.uri[1:]
+		parts = uri.split('/')
+		print "request.uri: %s" % request.uri
+		logging.info( "request.uri: %s" % request.uri)
+		database = parts[0]
+		if parts[1] == '_design':
+			view = parts[4]
+			design_doc = '/'.join([parts[1], parts[2]])
+		else:
+			view = parts[3]
+			design_doc = "_design%2F" + parts[2]
+		# strip query string from view name
+		if '?' in view:
+			view = view[0:view.find('?')]
 
-		primary_urls = ["/".join([host, "_design%2F" + document]) for host in self.conf_data.primary_shards(database)]
+		uri_no_db = uri[ uri.find('/')+1:]
+
+			
+		#  old:  http://host:5984/db/_view/designname/viewname
+		#  new:  http://host:5984/db/_design/designname/_view/viewname
+
+		primary_urls = [self._rewrite_url("/".join([host, design_doc])) for host in self.conf_data.primary_shards(database)]
 
 		uri = request.uri.split("/",2)[2]
 
@@ -607,8 +250,10 @@ class HTTPProxy(resource.Resource):
 		def handle_error(s):
 			# if we get back some non-http response type error, we should
 			# return 500
+			if request.uri in self.in_progress:
+				del self.in_progress[request.uri]
 			if hasattr(s.value, 'status'):
-				status = s.value.status
+				status = int(s.value.status)
 			else:
 				status = 500
 			if hasattr(s.value, 'response'):
@@ -620,7 +265,7 @@ class HTTPProxy(resource.Resource):
 			request.finish()
 		deferred.addErrback(handle_error)
 
-		r = ReduceFunctionFetcher(self.conf_data, primary_urls, database, uri, view, request.args, deferred)
+		r = ReduceFunctionFetcher(self.conf_data, primary_urls, database, uri, view, request.args, deferred, self.client_queue, self.reduce_queue)
 		r.fetch()
 		# we have a cached copy; we're just processing the request to replace it
 		if cached_result:
@@ -639,11 +284,12 @@ class HTTPProxy(resource.Resource):
 
 		# this is exactly like a view with no reduce
 		shards = self.conf_data.shards(database)
-		reducer = AllDocsReducer(None, len(shards), request.args, deferred)
+		reducer = AllDocsReducer(None, len(shards), request.args, deferred, self.reduce_queue)
 		for shard in shards:
 			nodes = self.conf_data.nodes(shard)
-			urls = ["/".join([node, rest]) for node in nodes]
-			fetcher = MapResultFetcher(shard, urls, reducer, deferred)
+			urls = [self._rewrite_url("/".join([node, rest])) for node in nodes]
+			logging.info ("urls: %s" % urls)
+			fetcher = MapResultFetcher(shard, urls, reducer, deferred, self.client_queue)
 			fetcher.fetch()
 
 		return server.NOT_DONE_YET
@@ -654,17 +300,30 @@ class HTTPProxy(resource.Resource):
 		deferred.addCallback(lambda s:
 									(request.write(s+"\n"), request.finish()))
 
-		deferred.addErrback(lambda s:
-								   (request.setResponseCode(int(s.value.status)), 
-									 request.write(s.value.response+"\n"), 
-									 request.finish()))
+		def handle_error(s):
+			# if we get back some non-http response type error, we should
+			# return 500
+			if hasattr(s.value, 'status'):
+				status = int(s.value.status)
+			else:
+				status = 500
+			if hasattr(s.value, 'response'):
+				response = s.value.response
+			else:
+				response = '{}'
+			request.setResponseCode(status)
+			request.write(response+"\n") 
+			request.finish()
+		deferred.addErrback(handle_error)
 
 		database, rest = request.uri[1:].split('/',1)
-		primary_urls = ['/'.join([host, rest]) for host in self.conf_data.primary_shards(database)]
+		_primary_urls = ['/'.join([host, rest]) for host in self.conf_data.primary_shards(database)]
+		primary_urls = [self._rewrite_url(url) for url in _primary_urls]
+		logging.info ('primary_urls: %s' % primary_urls)
 		body = ''
 		if method=='PUT' or method=='POST':
 			body = request.content.read()
-		fetcher = ProxyFetcher("proxy", primary_urls, method, body, deferred)
+		fetcher = ProxyFetcher("proxy", primary_urls, method, body, deferred, self.client_queue)
 		fetcher.fetch()
 		return server.NOT_DONE_YET
 
@@ -674,11 +333,12 @@ class HTTPProxy(resource.Resource):
 			return "imok"
 
 		if request.uri == "/_all_dbs":
-			db_urls = [host + "_all_dbs" for host in self.conf_data.nodes()]
+			db_urls = [self._rewrite_url(host + "_all_dbs") for host in self.conf_data.nodes()]
+			logging.info ("db_urls: %s" % db_urls)
 			deferred = defer.Deferred()
 			deferred.addCallback(lambda s:
 				(request.write(cjson.encode(s)+"\n"), request.finish()))
-			all = AllDbFetcher(self.conf_data, db_urls, deferred)
+			all = AllDbFetcher(self.conf_data, db_urls, deferred, self.client_queue)
 			all.fetch()
 			return server.NOT_DONE_YET
 
@@ -744,12 +404,23 @@ class HTTPProxy(resource.Resource):
 		deferred.addCallback(lambda s:
 									(request.write("{\"ok\":true}\n"), request.finish()))
 
-		deferred.addErrback(lambda s:
-								   (request.setResponseCode(int(s.value.status)), 
-									 request.write(s.value.response+"\n"), 
-									 request.finish()))
+		def handle_error(s):
+			# if we get back some non-http response type error, we should
+			# return 500
+			if hasattr(s.value, 'status'):
+				status = int(s.value.status)
+			else:
+				status = 500
+			if hasattr(s.value, 'response'):
+				response = s.value.response
+			else:
+				response = '{}'
+			request.setResponseCode(status)
+			request.write(response+"\n") 
+			request.finish()
+		deferred.addErrback(handle_error)
 
-		f = DbFetcher(self.conf_data, nodes, deferred, method)
+		f = DbFetcher(self.conf_data, nodes, deferred, method, self.client_queue)
 		f.fetch()
 		return server.NOT_DONE_YET
 	
@@ -764,14 +435,48 @@ class HTTPProxy(resource.Resource):
 		deferred = defer.Deferred()
 		deferred.addCallback(lambda s:
 									(request.write(cjson.encode(s)+"\n"), request.finish()))
-		deferred.addErrback(lambda s:
-								   (request.setResponseCode(int(s.value.status)), 
-									 request.write(s.value.response+"\n"), 
-									 request.finish()))
+		def handle_error(s):
+			# if we get back some non-http response type error, we should
+			# return 500
+			if hasattr(s.value, 'status'):
+				status = int(s.value.status)
+			else:
+				status = 500
+			if hasattr(s.value, 'response'):
+				response = s.value.response
+			else:
+				response = '{}'
+			request.setResponseCode(status)
+			request.write(response+"\n") 
+			request.finish()
+		deferred.addErrback(handle_error)
 
-		f = DbGetter(self.conf_data, nodes, deferred, db_name)
+		f = DbGetter(self.conf_data, nodes, deferred, db_name, self.client_queue)
 		f.fetch()
 		return server.NOT_DONE_YET
+
+	def _rewrite_url(self, url):
+		parts = url[7:].split('/')
+		hostport = parts[0]
+		host,port = hostport.split(':')
+
+		new_url = url
+
+		#  old:  http://host:5984/db/_view/designname/viewname
+		#  new:  http://host:5984/db/_design/designname/_view/viewname
+		if len(parts) > 2 and parts[2] == '_view':
+			new_parts = [hostport, parts[1], '_design', parts[3], '_view', parts[4]]
+			new_url = '/'.join(new_parts)	
+			new_url = 'http://' + new_url
+
+		if '_design%2F' in new_url:
+			new_url = new_url.replace('_design%2F', '_design/')
+
+		new_url = new_url.replace('?count', '?limit')
+		new_url = new_url.replace('&count', '&limit')
+
+		logging.debug('_rewrite_url: "%s" => "%s"' % (url, new_url))
+		return new_url
 
 
 if __name__ == "__main__":

@@ -10,12 +10,12 @@ cache_files = ('/var/lounge/lib/smartproxy', ['cache.dat'])
 
 data_files = [tac_files, init_files, conf_files, check_files, cron_files, cache_files]
 
-py_modules = ["smartproxy.proxy"]
+py_modules = ["smartproxy.proxy", "smartproxy.fetcher", "smartproxy.reducer"]
 
-setup( version = '1.0',
+setup( version = '1.1',
 	   name = 'lounge-smartproxy',
 	   author='meebo',
-	   author_email='shaun@meebo.com',
+	   author_email='shaun@meebo-inc.com',
 	   url='http://code.google.com/p/couchdb-lounge',
 	   data_files = data_files,
 	   py_modules = py_modules)
