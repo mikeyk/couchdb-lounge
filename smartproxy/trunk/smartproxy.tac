@@ -1,4 +1,3 @@
-import logging
 import os
 
 #import sys 
@@ -13,15 +12,13 @@ from smartproxy.proxy import HTTPProxy
 
 prefs = Prefs(os.environ.get("PREFS",'/var/lounge/etc/smartproxy/smartproxy.xml'))
 
-#log.startLogging(open('/var/lounge/log/smartproxyd.log', 'a'))
-
 http_port = prefs.get_pref("/http_port")
 
-loglevel = {'DEBUG' : logging.DEBUG,
-			'INFO'  : logging.INFO,
-			'WARN'  : logging.WARN }[prefs.get_pref('/log_level')]
-
-logging.basicConfig(level=loglevel)
+loglevel = prefs.get_pref('/log_level')
+if loglevel=='DEBUG':
+	log.debug = log.msg
+else:
+	log.debug = lambda x: None
 
 application = service.Application('smartproxy')
 
@@ -29,3 +26,5 @@ site = server.Site(HTTPProxy(prefs, True))
 sc = service.IServiceCollection(application)
 i = internet.TCPServer(http_port, site, interface="0.0.0.0")
 i.setServiceParent(sc)
+
+# vi: noexpandtab ts=2 sts=2 sw=2

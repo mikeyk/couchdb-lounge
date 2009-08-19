@@ -1,6 +1,5 @@
 import atexit
 import cPickle
-import logging
 import lounge
 import os
 import random
@@ -11,6 +10,7 @@ import urllib
 
 import cjson
 
+from twisted.python import log
 from twisted.internet import defer
 from twisted.internet import protocol, reactor, defer, process, task, threads
 from twisted.protocols import basic
@@ -35,9 +35,9 @@ class HttpFetcher:
 		pass
 
 	def _onerror(self, data):
-		logging.warning("Unable to fetch data from node %s" % data)
+		log.msg("Unable to fetch data from node %s" % data)
 		if len(self._remaining_nodes) == 0:
-			logging.warning("unable to fetch data from shard %s.  Failing" % self._name)
+			log.msg("unable to fetch data from shard %s.  Failing" % self._name)
 			self._deferred.errback(data)
 		else:
 			self.fetch()
@@ -48,7 +48,7 @@ class MapResultFetcher(HttpFetcher):
 		self._reducer = reducer
 
 	def _onsuccess(self, page):
-		logging.debug ("MapResultFetcher: shard %s result %s" % (self._name, page))
+		log.debug ("MapResultFetcher: shard %s result %s" % (self._name, page))
 		self._reducer.process_map(page)
 
 class DbFetcher(HttpFetcher):
@@ -76,7 +76,7 @@ class DbFetcher(HttpFetcher):
 		# don't retry on our all-database operations
 		if not self._failed:
 			# prevent from calling the errback twice
-			logging.warning("unable to fetch from node %s; db operation %s failed" % (data, self._name))
+			log.msg("unable to fetch from node %s; db operation %s failed" % (data, self._name))
 			self._failed = True
 			self._deferred.errback(data)
 
@@ -151,6 +151,11 @@ class ReduceFunctionFetcher(HttpFetcher):
 			shard_deferred.addErrback(handle_error)
 
 			nodes = self._config.nodes(shard)
+			if "stale" not in self._uri:
+				if "?" not in self._uri:
+					self._uri += "?stale=ok"
+				else:
+					self._uri += "&stale=ok"
 			urls = ["/".join([node, self._uri]) for node in nodes]
 			fetcher = MapResultFetcher(shard, urls, reducer, shard_deferred, self._client_queue)
 			fetcher.fetch()
@@ -171,7 +176,7 @@ class ProxyFetcher(HttpFetcher):
 	"""Pass along a GET, POST, or PUT."""
 	def __init__(self, name, nodes, method, body, deferred, client_queue):
 		HttpFetcher.__init__(self, name, nodes, deferred, client_queue)
-		logging.info ('ProxyFetcher, nodes: %s' % nodes)
+		log.msg ('ProxyFetcher, nodes: %s' % nodes)
 		self._method = method
 		self._body = body
 
@@ -179,7 +184,7 @@ class ProxyFetcher(HttpFetcher):
 		url = self._remaining_nodes[0]
 		self._remaining_nodes = self._remaining_nodes[1:]
 		self._remaining_nodes = []
-		logging.info ("ProxyFetcher.fetch, url: %s" % url)
+		log.msg ("ProxyFetcher.fetch, url: %s" % url)
 		deferred = client.getPage(url, method=self._method, postdata=self._body)
 		deferred.addCallback(self._onsuccess)
 		deferred.addErrback(self._onerror)
@@ -189,9 +194,9 @@ class ProxyFetcher(HttpFetcher):
 		self._deferred.callback(page)
 
 	def _onerror(self, data):
-		logging.warning("unable to fetch from node %s" % self._name)
+		log.msg("unable to fetch from node %s" % self._name)
 		data.printTraceback()
-		logging.warning("traceback? : %s" % data.getTraceback())
-		logging.warning("data: %s" % data)
-		logging.warning("dir(data): %s" % dir(data))
+		log.msg("traceback? : %s" % data.getTraceback())
+		log.msg("data: %s" % data)
+		log.msg("dir(data): %s" % dir(data))
 		self._deferred.errback(data)

@@ -1,6 +1,5 @@
 import atexit
 import cPickle
-import logging
 import lounge
 import os
 import random
@@ -11,6 +10,7 @@ import urllib
 
 import cjson
 
+from twisted.python import log
 from twisted.internet import defer
 from twisted.internet import protocol, reactor, defer, process, task, threads
 from twisted.protocols import basic
@@ -124,17 +124,17 @@ class ReduceQueue:
 			reducer = self.pool.pop(0)
 
 			def reduce_finished(response):
-				logging.debug("ReduceQueue: success, queue size %d, pool size %d" % (len(self.queue), len(self.pool)))
+				log.debug("ReduceQueue: success, queue size %d, pool size %d" % (len(self.queue), len(self.pool)))
 				self.return_to_pool(reducer)
 				cb(response)
 
 			def reduce_failed(*args, **kwargs):
-				logging.debug("ReduceQueue: failure, queue size %d, pool size %d" % (len(self.queue), len(self.pool)))
+				log.debug("ReduceQueue: failure, queue size %d, pool size %d" % (len(self.queue), len(self.pool)))
 				self.return_to_pool(reducer)
 
 			reducer.feed(keys, lines, reduce_finished, reduce_failed)
 		else:
-			logging.debug("ReduceQueue: success, queue size %d, pool size %d" % (len(self.queue), len(self.pool)))
+			log.debug("ReduceQueue: success, queue size %d, pool size %d" % (len(self.queue), len(self.pool)))
 
 class ReducerProcessProtocol(protocol.ProcessProtocol):
 	def feed(self, keys, lines, fn, err_fn):
@@ -147,21 +147,21 @@ class ReducerProcessProtocol(protocol.ProcessProtocol):
 		self.response = ""
 
 		if len(self.lines)==0:
-			logging.debug("nothing to reduce")
+			log.debug("nothing to reduce")
 			self._deferred.callback( ([], "") )
 			return
 
 		for line in self.lines:
-			logging.debug("Sending line to reducer %s" % line)
+			log.debug("Sending line to reducer %s" % line)
 			self.transport.writeToChild(0, line + "\r\n")
-		logging.debug("done sending data")
+		log.debug("done sending data")
 
 	def connectionMade(self):
 		# tell the reduce queue we are ready for action
 		self.reduce_queue.return_to_pool(self)
 
 	def childDataReceived(self, childFD, response):
-		logging.debug("Received data from reducer %s" % response)
+		log.debug("Received data from reducer %s" % response)
 		if childFD == 1:
 			self.response += response
 			# should get one line back for each line we sent (plus one for trailing newline)
@@ -188,7 +188,7 @@ class Reducer:
 		try:
 			results = cjson.decode(data)
 		except:
-			logging.exception('Could not json decode: %s' % data)
+			log.err('Could not json decode: %s' % data)
 			results = {'rows': []}
 		#result => {'rows' : [ {key: key1, value:value1}, {key:key2, value:value2}]}
 		self.queue_data(results)
@@ -197,7 +197,7 @@ class Reducer:
 		self.reduces_out -= 1
 		keys, data = args
 		entries = data.split("\n")
-		logging.debug("in process reduce: %s %s" % (keys, entries))
+		log.debug("in process reduce: %s %s" % (keys, entries))
 		results = [cjson.decode(entry) for entry in entries if len(entry) > 0]
 		#keys = [key1, key2]
 		#results = [ [success_for_key1, [value_from_fn1, value_from_fn2]], [success_for_key2, [value_from_fn1, value_from_fn2]]]

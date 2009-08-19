@@ -14,7 +14,6 @@
 
 import atexit
 import cPickle
-import logging
 import lounge
 import os
 import random
@@ -25,6 +24,7 @@ import urllib
 
 import cjson
 
+from twisted.python import log
 from twisted.internet import defer
 from twisted.internet import protocol, reactor, defer, process, task, threads
 from twisted.protocols import basic
@@ -76,21 +76,21 @@ class ClientQueue:
 			url, success, err = self.queue.pop(0)
 
 			def succeed(*args, **kwargs):
-				logging.debug("ClientQueue: success, queue size %d, reqs out %d" % (len(self.queue), self.count))
+				log.debug("ClientQueue: success, queue size %d, reqs out %d" % (len(self.queue), self.count))
 				self.count -= 1
 				try:
 					success(*args, **kwargs)
 				except:
-					logging.exception("Exception in ClientQueue callback; moving on")
+					log.err("Exception in ClientQueue callback; moving on")
 				self.next()
 
 			def fail(*args, **kwargs):
-				logging.debug("ClientQueue: failure, queue size %d, reqs out %d" % (len(self.queue), self.count))
+				log.debug("ClientQueue: failure, queue size %d, reqs out %d" % (len(self.queue), self.count))
 				self.count -= 1
 				try:
 					err(*args, **kwargs)
 				except:
-					logging.exception("Exception in ClientQueue errback; moving on")
+					log.err("Exception in ClientQueue errback; moving on")
 				self.next()
 
 			self.count += 1
@@ -98,7 +98,7 @@ class ClientQueue:
 			defer.addCallback(succeed)
 			defer.addErrback(fail)
 		else:
-			logging.debug("ClientQueue: queue size %d, reqs out %d" % (len(self.queue), self.count))
+			log.debug("ClientQueue: queue size %d, reqs out %d" % (len(self.queue), self.count))
 
 
 class HTTPProxy(resource.Resource):
@@ -144,9 +144,9 @@ class HTTPProxy(resource.Resource):
 		"""
 		try:
 			self.cache = cPickle.load(file(self.cache_file_path))
-			logging.info ("Loaded cache from %s" % self.cache_file_path)
+			log.msg ("Loaded cache from %s" % self.cache_file_path)
 		except:
-			logging.info ("No cache file found -- starting with an empty cache")
+			log.msg ("No cache file found -- starting with an empty cache")
 			self.cache = {}
 
 	def _persistCache(self):
@@ -155,9 +155,9 @@ class HTTPProxy(resource.Resource):
 		"""
 		try:
 			cPickle.dump(self.cache, open(self.cache_file_path, 'w'))
-			logging.info ("Persisted the view cache to %s" % self.cache_file_path)
+			log.msg ("Persisted the view cache to %s" % self.cache_file_path)
 		except:
-			logging.exception("Failed to persist the view cache to %s" % self.cache_file_path)
+			log.err("Failed to persist the view cache to %s" % self.cache_file_path)
 
 	def __loadConfig(self):
 		conf_file = self.prefs.get_pref("/proxy_conf")		
@@ -209,7 +209,7 @@ class HTTPProxy(resource.Resource):
 					cached_at, response = self.cache[request.uri]
 					# if so see if it is yet to expire
 					now = time.time()
-					logging.debug("Using cached copy of " + request.uri)
+					log.debug("Using cached copy of " + request.uri)
 					request.setHeader('Content-Type', 'application/json')
 					cached_result = response
 					# if the cache has expired and we don't already have a request for this uri running,
@@ -224,7 +224,7 @@ class HTTPProxy(resource.Resource):
 		#the previous request.
 		if request.uri in self.in_progress:
 			self.in_progress[request.uri].append(request)
-			logging.debug("Attaching request for %s to an earlier request for that uri" % request.uri)
+			log.debug("Attaching request for %s to an earlier request for that uri" % request.uri)
 			return server.NOT_DONE_YET
 		else:
 			self.in_progress[request.uri] = []
@@ -475,7 +475,7 @@ class HTTPProxy(resource.Resource):
 		new_url = new_url.replace('?count', '?limit')
 		new_url = new_url.replace('&count', '&limit')
 
-		logging.debug('_rewrite_url: "%s" => "%s"' % (url, new_url))
+		log.debug('_rewrite_url: "%s" => "%s"' % (url, new_url))
 		return new_url
 
 
@@ -484,7 +484,6 @@ if __name__ == "__main__":
 	import unittest
 	import os
 	from lounge.prefs import Prefs
-	logging.basicConfig(level=logging.DEBUG)
 
 	class HTTPProxyTestCase(unittest.TestCase):
 
@@ -495,7 +494,7 @@ if __name__ == "__main__":
 			cache_file = self.prefs.get_pref("/cache_file_path")
 			try:
 				os.unlink(cache_file)
-				logging.info("deleted old cache file (%s)" % cache_file)
+				log.msg("deleted old cache file (%s)" % cache_file)
 			except:
 				pass
 
