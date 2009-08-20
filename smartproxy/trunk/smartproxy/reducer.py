@@ -2,6 +2,7 @@ import atexit
 import cPickle
 import lounge
 import os
+import PyICU
 import random
 import re
 import sys
@@ -16,6 +17,72 @@ from twisted.internet import protocol, reactor, defer, process, task, threads
 from twisted.protocols import basic
 from twisted.web import server, resource, client
 from twisted.python.failure import DefaultException
+
+# see http://wiki.apache.org/couchdb/View_collation
+json_type_order = {
+	type(None): 0,
+	type(False): 1,
+	type(1): 2,
+	type(1.1): 2,
+	type("a"): 3,
+	type(u"a"): 3,
+	type([]): 4,
+	type({}): 5 }
+
+uca_collator = None
+def uca_cmp(a, b):
+	global uca_collator
+	if uca_collator is None:
+		uca_collator = PyICU.Collator.createInstance()
+	return uca_collator.compare(a, b)
+
+def json_list_cmp(a, b):
+	minlen = min(len(a), len(b))
+	for i in range(0, minlen):
+		cval = json_cmp(a[i], b[i])
+		if cval!=0:
+			return cval
+
+	# one is prefix of the other; shorter one comes first
+	if minlen<len(b):
+		return -1
+	if minlen<len(a):
+		return 1
+
+	# they're equal
+	return 0
+
+def json_obj_cmp(a, b):
+	# please don't use objects in your view keys. :(
+	akeys = a.keys()
+	bkeys = b.keys()
+	akeys.sort(json_cmp)
+	bkeys.sort(json_cmp)
+	cval = json_list_cmp(akeys, bkeys)
+	if cval != 0:
+		return cval
+	# same keys, compare values
+	avals = [a[k] for k in akeys]
+	bvals = [b[k] for k in bkeys]
+	return json_list_cmp(avals, bvals)
+
+def json_cmp(a, b):
+	atypeidx = json_type_order[type(a)]
+	btypeidx = json_type_order[type(b)]
+	if atypeidx != btypeidx:
+		return cmp(atypeidx, btypeidx)
+
+	if isinstance(a, basestring):
+		# use unicode collation algorithm
+		return uca_cmp(a, b)
+
+	if isinstance(a, list):
+		return json_list_cmp(a, b)
+	
+	if isinstance(a, dict):
+		return json_obj_cmp(a, b)
+
+	return cmp(a,b)
 
 def to_reducelist(stuff):
 	return [row["value"] for row in stuff.get("rows",[])]
@@ -72,7 +139,7 @@ def unique_merge(rows1, rows2, compare=cmp):
 		out += rows2[j:]
 	return out
 
-def merge(r1, r2, compare=cmp, unique=False):
+def merge(r1, r2, compare=json_cmp, unique=False):
 	"""Merge the results from r2 into r1."""
 	rows1 = r1["rows"]
 	rows2 = r2["rows"]
