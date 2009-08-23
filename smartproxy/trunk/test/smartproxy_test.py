@@ -10,7 +10,10 @@ from couchstub import CouchStub
 import process
 
 def get_json(url):
-  return simplejson.loads(urllib2.urlopen(url).read())
+  try:
+    return simplejson.loads(urllib2.urlopen(url).read())
+  except urllib2.HTTPError:
+    return None
 
 class ProxyTest(TestCase):
   def setUp(self):
@@ -63,6 +66,7 @@ class ProxyTest(TestCase):
     be1.verify()
     be2.verify()
 
+    assert doc is not None, "HTTPError"
     self.assertEqual(doc['db_name'], 'test')
     self.assertEqual(doc['doc_count'], 15)
     self.assertEqual(doc['doc_del_count'], 3)
