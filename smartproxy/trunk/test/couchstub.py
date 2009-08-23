@@ -40,7 +40,7 @@ class FakeCouch(threading.Thread):
     self.stub = stub
     self.failures = []
     self.server = HTTPServer((addr, port), FakeCouchHandler)
-    self.server.timeout = 0.1
+    self.server.timeout = 0.05
     self.server.failures = self.failures
     self.server.stub = self.stub
 
