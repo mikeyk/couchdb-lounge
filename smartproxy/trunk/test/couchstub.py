@@ -64,6 +64,9 @@ class Request:
     if 'Content-type' not in self.responseheaders:
       self.responseheaders['Content-type'] = 'application/json'
 
+  def __str__(self):
+    return "%s %s" % (self.method, self.path)
+
 class CouchStub:
   def __init__(self):
     self.expected = []
@@ -93,3 +96,4 @@ class CouchStub:
     self.stop.set()
     self._thread.join()
     assert (not self._thread.failures), " and ".join(self._thread.failures)
+    assert len(self.expected)==0, "Expected more requests: " + ', '.join([str(x) for x in self.expected])
