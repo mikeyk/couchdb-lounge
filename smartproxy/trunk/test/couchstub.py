@@ -34,6 +34,7 @@ class FakeCouchHandler(BaseHTTPRequestHandler):
   do_GET = do_any
   do_PUT = do_any
   do_POST = do_any
+  do_DELETE = do_any
 
 class FakeCouch(threading.Thread):
   def listen(self, stub, addr, port):
@@ -45,10 +46,13 @@ class FakeCouch(threading.Thread):
     self.server.stub = self.stub
 
   def run(self):
-    while True:
-      if self.stub.stop.is_set():
-        return
-      self.server.handle_request()
+    try:
+      while True:
+        if self.stub.stop.is_set():
+          break
+        self.server.handle_request()
+    finally:
+      self.server.server_close()
 
 class Request:
   def __init__(self, method, path, body, headers):
