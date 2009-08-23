@@ -122,7 +122,7 @@ class ProxyTest(TestCase):
 		be2.expect_GET("/test1").reply(404, dict(error="not_found",reason="missing"))
 		be2.listen("localhost", 34567)
 
-		resp = get("http://localhost:22008/test", "GET")
+		resp = get("http://localhost:22008/test")
 
 		be1.verify()
 		be2.verify()
