@@ -1,5 +1,6 @@
 #!/usr/bin/python
 
+import os
 import simplejson
 import urllib2
 
@@ -19,6 +20,10 @@ class ProxyTest(TestCase):
   def tearDown(self):
     process.stop_pid(self.smartproxy_pid)
     process.wait_for_process_exit(self.smartproxy_pid)
+    try:
+      os.unlink("twistd.pid")
+    except OSError:
+      pass
 
   def testNothing(self):
     """Trivial smartproxy health check"""
