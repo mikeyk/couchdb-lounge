@@ -165,8 +165,7 @@ class HTTPProxy(resource.Resource):
 		if mtime <= self.__last_load_time:
 			return
 		self.__last_load_time = mtime
-		json_data = cjson.decode(open(conf_file).read())
-		self.conf_data = lounge.ShardMap()
+		self.conf_data = lounge.ShardMap(conf_file)
 
 	def render_view(self, request):
 		"""Farm out a view query to all nodes and combine the results."""
