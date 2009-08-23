@@ -25,6 +25,10 @@ class ProxyTest(TestCase):
     assert urllib2.urlopen("http://localhost:22008/ruok").read()=="imok"
 
   def testGetDB(self):
+    """Try to GET information on a database.
+
+    smartproxy should get info on each shard and merge them together
+    """
     be1 = CouchStub()
     be1.expect_GET("/test0").reply(200, dict(
       db_name="test0", 
