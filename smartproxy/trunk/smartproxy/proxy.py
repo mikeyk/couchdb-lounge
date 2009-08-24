@@ -173,8 +173,6 @@ class HTTPProxy(resource.Resource):
 		#database, _view, document, view = parse_uri(request.uri)
 		uri = request.uri[1:]
 		parts = uri.split('/')
-		print "request.uri: %s" % request.uri
-		logging.info( "request.uri: %s" % request.uri)
 		database = parts[0]
 		if parts[1] == '_design':
 			view = parts[4]
@@ -291,7 +289,6 @@ class HTTPProxy(resource.Resource):
 		for shard in shards:
 			nodes = self.conf_data.nodes(shard)
 			urls = [self._rewrite_url("/".join([node, rest])) for node in nodes]
-			logging.info ("urls: %s" % urls)
 			fetcher = MapResultFetcher(shard, urls, reducer, deferred, self.client_queue)
 			fetcher.fetch()
 
@@ -329,7 +326,6 @@ class HTTPProxy(resource.Resource):
 		database, rest = request.uri[1:].split('/',1)
 		_primary_urls = ['/'.join([host, rest]) for host in self.conf_data.primary_shards(database)]
 		primary_urls = [self._rewrite_url(url) for url in _primary_urls]
-		logging.info ('primary_urls: %s' % primary_urls)
 		body = ''
 		if method=='PUT' or method=='POST':
 			body = request.content.read()
@@ -344,7 +340,6 @@ class HTTPProxy(resource.Resource):
 
 		if request.uri == "/_all_dbs":
 			db_urls = [self._rewrite_url(host + "_all_dbs") for host in self.conf_data.nodes()]
-			logging.info ("db_urls: %s" % db_urls)
 			deferred = defer.Deferred()
 			deferred.addCallback(lambda s:
 				(request.write(cjson.encode(s)+"\n"), request.finish()))
