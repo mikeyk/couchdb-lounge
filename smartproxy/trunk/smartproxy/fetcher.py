@@ -206,7 +206,7 @@ class ProxyFetcher(HttpFetcher):
 		self.factory.deferred.addErrback(self._onerror)
 
 	def _onsuccess(self, page):
-		self._deferred.callback((self.factory.response_headers, page))
+		self._deferred.callback((int(self.factory.status), self.factory.response_headers, page))
 
 	def _onerror(self, data):
 		log.msg("unable to fetch from node %s" % self._name)
@@ -215,3 +215,4 @@ class ProxyFetcher(HttpFetcher):
 		log.msg("data: %s" % data)
 		log.msg("dir(data): %s" % dir(data))
 		self._deferred.errback(data)
+# vi: noexpandtab ts=2 sts=2 sw=2

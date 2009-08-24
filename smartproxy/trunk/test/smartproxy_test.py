@@ -9,8 +9,6 @@ import urllib2
 
 from unittest import TestCase, main
 
-from lounge import client
-
 from couchstub import CouchStub
 import process
 
@@ -25,6 +23,15 @@ def req(url, method, body=None, headers=None):
 	curl.setopt(pycurl.URL, url)
 	outbuf = StringIO.StringIO()
 	curl.setopt(pycurl.WRITEFUNCTION, outbuf.write)
+
+	if body is not None:
+		body = simplejson.dumps(body)
+		if method=='POST':
+			curl.setopt(pycurl.POSTFIELDS, body)
+		else:
+			inbuf = StringIO.StringIO(body)
+			curl.setopt(pycurl.INFILESIZE, len(body))
+			curl.setopt(pycurl.READFUNCTION, inbuf.read)
 
 	if method=='PUT':
 		curl.setopt(pycurl.UPLOAD, 1)
@@ -46,6 +53,12 @@ def req(url, method, body=None, headers=None):
 
 def get(url, body=None, headers=None):
 	return req(url, "GET", body, headers)
+
+def put(url, body=None, headers=None):
+	return req(url, "PUT", body, headers)
+
+def post(url, body=None, headers=None):
+	return req(url, "POST", body, headers)
 
 def assert_raises(exception, function, *args, **kwargs):
 	"""Make sure that when you call function, it raises exception"""
@@ -130,6 +143,29 @@ class ProxyTest(TestCase):
 		self.assertEqual(resp.code, 404)
 		self.assertEqual(resp.body['error'], 'not_found')
 		self.assertEqual(resp.body['reason'], 'missing')
+
+	def testPutDesign(self):
+		"""Try to create a design document.
+		
+		smartproxy should redirect the request to the first shard.
+		"""
+		be1 = CouchStub()
+		be1.expect_PUT("/funstuff0/_design/monkeys").reply(201, dict(
+			ok=True, id="_design/monkeys", rev="1-2323232323"))
+		be1.listen("localhost", 23456)
+
+		be2 = CouchStub()
+		be2.listen("localhost", 34567)
+
+		resp = put("http://localhost:22008/funstuff/_design/monkeys", 
+			{"views": {}})
+
+		be1.verify()
+		be2.verify()
+
+		self.assertEqual(resp.code, 201)
+		self.assertEqual(resp.body['ok'], True)
+		self.assertEqual(resp.body['rev'], '1-2323232323')
 
 if __name__=="__main__":
 	if os.environ.get("DEBUG",False):

@@ -299,10 +299,11 @@ class HTTPProxy(resource.Resource):
 		deferred = defer.Deferred()
 
 		def handle_success(params):
-			headers, doc = params
+			code, headers, doc = params
 			for k in headers:
 				if len(headers[k])>0:
 					request.setHeader(k, headers[k][0])
+			request.setResponseCode(code)
 			request.write(doc)
 			request.finish()
 		deferred.addCallback(handle_success)
