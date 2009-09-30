@@ -117,7 +117,7 @@ class HTTPProxy(resource.Resource):
 		self.client_queue = ClientQueue(self.prefs.get_pref("/client_pool_size"))
 
 		self.__last_load_time = 0
-		self.__loadConfig
+		self.__loadConfig()
 		self.__loadConfigCallback = task.LoopingCall(self.__loadConfig)
 		self.__loadConfigCallback.start(300)
 		# list of cacheable URI patterns
