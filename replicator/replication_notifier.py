@@ -58,14 +58,14 @@ class BgReplicator(threading.Thread):
 	def run(self):
 		while True:
 			source, target, opts, tm = repq.get()
-			do = opts.get("designonly", "false")
+			do = opts.get("designonly", False)
 			last = last_update.get((source, target, do), None)
 			# if we have performed this replication since the record was enqueued,
 			# we can skip it.
 			if last is None or last < tm:
 				last_update[(source, target, do)] = time.time()
 				try:
-					post_data = simplejson.dumps({"source": source, "target": target, "options": opts})
+					post_data = simplejson.dumps({"source": source, "target": target, "designonly": do})
 					urllib2.urlopen(me + "_replicate", post_data)
 				except:
 					# don't panic!  keep going to the next record in the queue.
@@ -98,7 +98,7 @@ def replicate(shard):
 	if shard_index==0:
 		for target in shard_map.primary_shards(shard_map.get_db_from_shard(source)):
 			if target != local:
-				do_background_replication(source, target, designonly="true")
+				do_background_replication(source, target, designonly=True)
 
 def load_config(fname):
 	global shard_map
