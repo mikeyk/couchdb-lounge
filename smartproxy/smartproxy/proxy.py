@@ -14,6 +14,7 @@
 
 import atexit
 import cPickle
+import copy
 import lounge
 import os
 import random
@@ -31,9 +32,9 @@ from twisted.protocols import basic
 from twisted.web import server, resource, client
 from twisted.python.failure import DefaultException
 
-from fetcher import HttpFetcher, MapResultFetcher, DbFetcher, DbGetter, ReduceFunctionFetcher, AllDbFetcher, ProxyFetcher
+from fetcher import HttpFetcher, MapResultFetcher, DbFetcher, DbGetter, ReduceFunctionFetcher, AllDbFetcher, ProxyFetcher, ChangesFetcher
 
-from reducer import ReduceQueue, ReducerProcessProtocol, Reducer, AllDocsReducer
+from reducer import ReduceQueue, ReducerProcessProtocol, Reducer, AllDocsReducer, ChangesReducer
 
 def parse_uri(uri):
 	query = ''
@@ -47,6 +48,17 @@ def parse_uri(uri):
 	assert _view=='_view'
 	return database, _view, document, view
 
+def qsparse(qs):
+	# shouldn't this be a python standard library?
+	rv = []
+	# ''.split('&') does not return an empty list. jerk
+	if qs:
+		for pair in qs.split('&'):
+			k,v = pair.split('=')
+			k = urllib.unquote(k)
+			v = urllib.unquote(v)
+			rv.append((k,v))
+	return dict(rv)
 
 def should_regenerate(now, cached_at, cachetime):
 	age = now - cached_at
@@ -80,8 +92,8 @@ class ClientQueue:
 				self.count -= 1
 				try:
 					success(*args, **kwargs)
-				except:
-					log.err("Exception in ClientQueue callback; moving on")
+				except Exception, e:
+					log.err("Exception '%s' in ClientQueue callback; moving on" % str(e))
 				self.next()
 
 			def fail(*args, **kwargs):
@@ -273,6 +285,60 @@ class HTTPProxy(resource.Resource):
 			return cached_result
 		return server.NOT_DONE_YET
 	
+	def render_changes(self, request):
+		database, changes = request.uri[1:].split('/', 1)
+		qs = ''
+		if '?' in changes:
+			changes, qs = changes.split('?', 1)
+
+		deferred = defer.Deferred()
+
+		def send_output(params):
+			if type(params)==type((1,)) and len(params)==3:
+				code, headers, doc = params
+			else:
+				code, headers, doc = 200, {}, params
+			for k in headers:
+				if len(headers[k])>0:
+					request.setHeader(k, headers[k][0])
+			request.setResponseCode(code)
+			request.write(doc)
+			request.finish()
+		deferred.addCallback(send_output)
+
+		def handle_error(s):
+			# if we get back some non-http response type error, we should
+			# return 500
+			if request.uri in self.in_progress:
+				del self.in_progress[request.uri]
+			if hasattr(s.value, 'status'):
+				status = int(s.value.status)
+			else:
+				status = 500
+			if hasattr(s.value, 'response'):
+				response = s.value.response
+			else:
+				response = '{}'
+			request.setResponseCode(status)
+			request.write(response+"\n") 
+			request.finish()
+		deferred.addErrback(handle_error)
+
+		shards = self.conf_data.shards(database)
+		args = qsparse(qs)
+		seq = cjson.decode(args.get('since', cjson.encode([0 for shard in shards])))
+		reducer = ChangesReducer(seq, deferred)
+		for shard,shard_seq in zip(shards, seq):
+			nodes = self.conf_data.nodes(shard)
+			shard_args = copy.copy(args)
+			shard_args['since'] = shard_seq
+
+			urls = [node + "/_changes?" + urllib.urlencode(shard_args) for node in nodes]
+			fetcher = ChangesFetcher(shard, urls, reducer, deferred, self.client_queue)
+			fetcher.fetch()
+
+		return server.NOT_DONE_YET
+	
 	def render_all_docs(self, request):
 		# /database/_all_docs?stuff => database, _all_docs?stuff
 		database, rest = request.uri[1:].split('/', 1)
@@ -356,6 +422,11 @@ class HTTPProxy(resource.Resource):
 		# GET /db/_all_docs?options
 		if request.uri.endswith("/_all_docs") or ("/_all_docs?" in request.uri):
 			return self.render_all_docs(request)
+
+		# GET /db/_changes .. or ..
+		# GET /db/_changes?options
+		if request.uri.endswith("/_changes") or ("/_changes?" in request.uri):
+			return self.render_changes(request)
 
 		if '/_view/' in request.uri:
 			return self.render_view(request)
@@ -514,4 +585,4 @@ if __name__ == "__main__":
 
 	unittest.main()
 
-# vi: noexpandtab ts=2 sw=2
+# vi: noexpandtab ts=2 sw=2 sts=2

@@ -5,6 +5,7 @@ import os
 import pycurl
 import simplejson
 import StringIO
+import urllib
 import urllib2
 
 from unittest import TestCase, main
@@ -166,6 +167,51 @@ class ProxyTest(TestCase):
 		self.assertEqual(resp.code, 201)
 		self.assertEqual(resp.body['ok'], True)
 		self.assertEqual(resp.body['rev'], '1-2323232323')
+	
+	def testChanges(self):
+		"""Query _changes on a db.
+
+		smartproxy should send a _changes req to each shard and merge them.
+		"""
+		be1 = CouchStub()
+		be1.expect_GET("/funstuff0/_changes?since=5").reply(200, dict(
+			results=[
+				{"seq": 6, "id": "mywallet", "changes":[{"rev": "1-2345"}]},
+				{"seq": 7, "id": "elsegundo", "changes":[{"rev": "2-3456"}]}
+			]))
+		be1.listen("localhost", 23456)
+
+		be2 = CouchStub()
+		be2.expect_GET("/funstuff1/_changes?since=12").reply(200, dict(
+			results=[
+				{"seq": 13, "id": "gottagetit", "changes":[{"rev": "1-2345"}]},
+				{"seq": 14, "id": "gotgottogetit", "changes":[{"rev": "2-3456"}]}
+			]))
+		be2.listen("localhost", 34567)
+
+		resp = get("http://localhost:22008/funstuff/_changes?since=%s" % urllib.quote(simplejson.dumps([5,12])))
+
+		be1.verify()
+		be2.verify()
+
+		self.assertEqual(resp.code, 200)
+		assert 'results' in resp.body
+		res = resp.body['results']
+		self.assertEqual(len(res), 4, "Should have 4 changes")
+
+		# check that the sequence vectors increment correctly
+		# the order the rows arrive is non-deterministic
+		seq = [5,12]
+		def encode(lst):
+			return simplejson.dumps(seq)
+		for row in res:
+			if row["id"] in ["mywallet", "elsegundo"]:
+				seq[0] += 1
+			elif row["id"] in ["gottagetit", "gotgottogetit"]:
+				seq[1] += 1
+			else:
+				assert False, "Got unexpected row %s" % row["id"]
+			self.assertEqual(encode(seq), row["seq"])
 
 if __name__=="__main__":
 	if os.environ.get("DEBUG",False):

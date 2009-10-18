@@ -50,6 +50,15 @@ class MapResultFetcher(HttpFetcher):
 	def _onsuccess(self, page):
 		self._reducer.process_map(page)
 
+class ChangesFetcher(HttpFetcher):
+	def __init__(self, shard, nodes, reducer, deferred, client_queue):
+		HttpFetcher.__init__(self, shard, nodes, deferred, client_queue)
+		self._reducer = reducer
+		self._shard = shard
+
+	def _onsuccess(self, page):
+		self._reducer.process_map(self._shard, page)
+
 class DbFetcher(HttpFetcher):
 	"""Perform an HTTP request on all shards in a database."""
 	def __init__(self, config, nodes, deferred, method, client_queue):

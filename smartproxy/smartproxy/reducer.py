@@ -321,3 +321,28 @@ class AllDocsReducer(Reducer):
 		# merge and unique.  no reduce
 		self.queue_data(merge(a, b, unique=True))
 
+class ChangesReducer(Reducer):
+	def __init__(self, seq, deferred):
+		self._sequence = seq
+		self._results = []
+		Reducer.__init__(self, None, len(self._sequence), {}, deferred, None)
+
+	def process_map(self, shard, data):
+		#TODO: check to make sure this doesn't go less than 0
+		self.num_entries_remaining -= 1
+		mo = re.search(r'(\d+)$', shard)
+		shard_idx = int(mo.group(1))
+		results = cjson.decode(data)
+		self.queue_data(shard_idx, results)
+	
+	def queue_data(self, shard_idx, a):
+		"""Mash _changes sequences together."""
+		for change in a["results"]:
+			self._sequence[shard_idx] = change["seq"]
+			change["seq"] = cjson.encode(self._sequence)
+			self._results.append(change)
+
+		if self.num_entries_remaining == 0:
+			self.reduce_deferred.callback(cjson.encode({"results": self._results}))
+
+# vi: noexpandtab ts=2 sts=2 sw=2

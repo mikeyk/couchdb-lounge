@@ -1,4 +1,5 @@
 import simplejson
+import socket
 import threading
 import time
 
@@ -40,7 +41,19 @@ class FakeCouch(threading.Thread):
   def listen(self, stub, addr, port):
     self.stub = stub
     self.failures = []
-    self.server = HTTPServer((addr, port), FakeCouchHandler)
+
+    tries = 10
+    while tries > 0:
+      try:
+        tries -= 1
+        self.server = HTTPServer((addr, port), FakeCouchHandler)
+        break
+      except socket.error, e:
+        if tries <= 0:
+          assert False, "Couldn't start CouchStub on %s:%s" % (addr, port)
+        # wait a few ms and try again
+        time.sleep(0.15)
+
     self.server.timeout = 0.05
     self.server.failures = self.failures
     self.server.stub = self.stub
@@ -52,7 +65,8 @@ class FakeCouch(threading.Thread):
           break
         self.server.handle_request()
     finally:
-      self.server.server_close()
+      if hasattr(self.server, 'server_close'):
+        self.server.server_close()
 
 class Request:
   def __init__(self, method, path, body, headers):
@@ -101,3 +115,4 @@ class CouchStub:
     self._thread.join()
     assert (not self._thread.failures), " and ".join(self._thread.failures)
     assert len(self.expected)==0, "Expected more requests: " + ', '.join([str(x) for x in self.expected])
+# vi: expandtab ts=2 sts=2 sw=2
