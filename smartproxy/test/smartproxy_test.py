@@ -45,7 +45,7 @@ def req(url, method, body=None, headers=None):
 	def parse_header(txt):
 		if ': ' in txt:
 			k,v = txt.strip().split(': ',1)
-			headers[k] = v
+			headers[k.lower()] = v
 	curl.setopt(pycurl.HEADERFUNCTION, parse_header)
 
 	curl.perform()
@@ -178,7 +178,7 @@ class ProxyTest(TestCase):
 			results=[
 				{"seq": 6, "id": "mywallet", "changes":[{"rev": "1-2345"}]},
 				{"seq": 7, "id": "elsegundo", "changes":[{"rev": "2-3456"}]}
-			]))
+			]),headers={"Content-Type": "text/plain;charset=utf8"})
 		be1.listen("localhost", 23456)
 
 		be2 = CouchStub()
@@ -186,7 +186,7 @@ class ProxyTest(TestCase):
 			results=[
 				{"seq": 13, "id": "gottagetit", "changes":[{"rev": "1-2345"}]},
 				{"seq": 14, "id": "gotgottogetit", "changes":[{"rev": "2-3456"}]}
-			]))
+			]),headers={"Content-Type": "text/plain;charset=utf8"})
 		be2.listen("localhost", 34567)
 
 		resp = get("http://localhost:22008/funstuff/_changes?since=%s" % urllib.quote(simplejson.dumps([5,12])))
@@ -195,6 +195,7 @@ class ProxyTest(TestCase):
 		be2.verify()
 
 		self.assertEqual(resp.code, 200)
+		self.assertEqual(resp.headers["content-type"], "text/plain;charset=utf8")
 		assert 'results' in resp.body
 		res = resp.body['results']
 		self.assertEqual(len(res), 4, "Should have 4 changes")

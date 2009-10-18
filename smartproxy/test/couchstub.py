@@ -78,8 +78,8 @@ class Request:
   def reply(self, code, body, headers={}):
     self.responsecode = code
     self.responsebody = simplejson.dumps(body)
-    self.responseheaders = {}
-    if 'Content-type' not in self.responseheaders:
+    self.responseheaders = headers
+    if 'content-type' not in [k.lower() for k in self.responseheaders.keys()]:
       self.responseheaders['Content-type'] = 'application/json'
 
   def __str__(self):

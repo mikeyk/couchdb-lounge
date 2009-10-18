@@ -1,4 +1,5 @@
 import atexit
+import copy
 import cPickle
 import lounge
 import os
@@ -325,10 +326,14 @@ class ChangesReducer(Reducer):
 	def __init__(self, seq, deferred):
 		self._sequence = seq
 		self._results = []
+		self._response_headers = None
 		Reducer.__init__(self, None, len(self._sequence), {}, deferred, None)
 
-	def process_map(self, shard, data):
+	def process_map(self, shard, data, headers):
 		#TODO: check to make sure this doesn't go less than 0
+		log.msg("Got headers: %s" % str(headers))
+		if not self._response_headers:
+			self._response_headers = copy.copy(headers)
 		self.num_entries_remaining -= 1
 		mo = re.search(r'(\d+)$', shard)
 		shard_idx = int(mo.group(1))
@@ -343,6 +348,6 @@ class ChangesReducer(Reducer):
 			self._results.append(change)
 
 		if self.num_entries_remaining == 0:
-			self.reduce_deferred.callback(cjson.encode({"results": self._results}))
+			self.reduce_deferred.callback((200, self._response_headers, cjson.encode({"results": self._results})))
 
 # vi: noexpandtab ts=2 sts=2 sw=2

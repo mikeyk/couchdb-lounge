@@ -36,6 +36,9 @@ from fetcher import HttpFetcher, MapResultFetcher, DbFetcher, DbGetter, ReduceFu
 
 from reducer import ReduceQueue, ReducerProcessProtocol, Reducer, AllDocsReducer, ChangesReducer
 
+def normalize_header(h):
+	return '-'.join([word.capitalize() for word in h.split('-')])
+
 def parse_uri(uri):
 	query = ''
 	if uri.find('?')>=0:
@@ -294,13 +297,10 @@ class HTTPProxy(resource.Resource):
 		deferred = defer.Deferred()
 
 		def send_output(params):
-			if type(params)==type((1,)) and len(params)==3:
-				code, headers, doc = params
-			else:
-				code, headers, doc = 200, {}, params
+			code, headers, doc = params
 			for k in headers:
 				if len(headers[k])>0:
-					request.setHeader(k, headers[k][0])
+					request.setHeader(normalize_header(k), headers[k][0])
 			request.setResponseCode(code)
 			request.write(doc)
 			request.finish()

@@ -19,6 +19,14 @@ from twisted.python.failure import DefaultException
 
 from reducer import Reducer
 
+def getPageWithHeaders(url, *args, **kwargs):
+	# basically a clone of client.getPage, but with a handle on the factory
+	# so we can pull the headers later
+	scheme, host, port, path = client._parse(url)
+	factory = client.HTTPClientFactory(url, *args, **kwargs)
+	reactor.connectTCP(host, port, factory)
+	return factory
+
 class HttpFetcher:
 	def __init__(self, name, nodes, deferred, client_queue):
 		self._name = name
@@ -50,15 +58,6 @@ class MapResultFetcher(HttpFetcher):
 	def _onsuccess(self, page):
 		self._reducer.process_map(page)
 
-class ChangesFetcher(HttpFetcher):
-	def __init__(self, shard, nodes, reducer, deferred, client_queue):
-		HttpFetcher.__init__(self, shard, nodes, deferred, client_queue)
-		self._reducer = reducer
-		self._shard = shard
-
-	def _onsuccess(self, page):
-		self._reducer.process_map(self._shard, page)
-
 class DbFetcher(HttpFetcher):
 	"""Perform an HTTP request on all shards in a database."""
 	def __init__(self, config, nodes, deferred, method, client_queue):
@@ -87,6 +86,22 @@ class DbFetcher(HttpFetcher):
 			log.msg("unable to fetch from node %s; db operation %s failed" % (data, self._name))
 			self._failed = True
 			self._deferred.errback(data)
+
+class ChangesFetcher(HttpFetcher):
+	def __init__(self, shard, nodes, reducer, deferred, client_queue):
+		HttpFetcher.__init__(self, shard, nodes, deferred, client_queue)
+		self._reducer = reducer
+		self._shard = shard
+
+	def _onsuccess(self, page):
+		self._reducer.process_map(self._shard, page, self.factory.response_headers)
+
+	def fetch(self):
+		url = self._remaining_nodes[0]
+		self._remaining_nodes = self._remaining_nodes[1:]
+		self.factory = getPageWithHeaders(url=url, method='GET')
+		self.factory.deferred.addCallback(self._onsuccess)
+		self.factory.deferred.addErrback(self._onerror)
 
 class DbGetter(DbFetcher):
 	"""Get info about every shard of a database and accumulate the results."""
@@ -188,14 +203,6 @@ class AllDbFetcher(HttpFetcher):
 		shards = cjson.decode(page)
 		dbs = dict([(self._config.get_db_from_shard(shard), 1) for shard in shards])
 		self._deferred.callback(dbs.keys())
-
-def getPageWithHeaders(url, *args, **kwargs):
-	# basically a clone of client.getPage, but with a handle on the factory
-	# so we can pull the headers later
-	scheme, host, port, path = client._parse(url)
-	factory = client.HTTPClientFactory(url, *args, **kwargs)
-	reactor.connectTCP(host, port, factory)
-	return factory
 
 class ProxyFetcher(HttpFetcher):
 	"""Pass along a GET, POST, or PUT."""
