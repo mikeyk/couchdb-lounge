@@ -8,9 +8,13 @@ ifeq ($(PY_VERSION), Python 2.3.4)
 	PY_EXTRA=
 endif
 
-.PHONY:	default
+.PHONY:	default install
+
 default:
-	python setup.py bdist_rpm --release="$(RELEASE)" $(PY_EXTRA)
+	python setup.py build
+
+install:
+	python setup.py install --root $(DESTDIR)
 
 .PHONY: test
 test:

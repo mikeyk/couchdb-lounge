@@ -9,11 +9,17 @@ ifeq ($(PY_VERSION), Python 2.3.4)
 endif
 
 default:
-	echo $(PY_VERSION)
-	python setup.py bdist_rpm --release="$(RELEASE)" --requires "Twisted, python-cjson, zope.interface, python-lounge, python-simplejson" $(PY_EXTRA)
-clean:
-	rm -f MANIFEST
-	rm -rf dist build
-	find . -name "*.pyc" -exec rm -f {} \;
-	find . -name "*~" -exec rm -f {} \;
-	find . -name "#*#" -exec rm -f {} \;
+	python setup.py build
+
+install:
+	python setup.py install --root $(DESTDIR)
+
+#default:
+#	echo $(PY_VERSION)
+#	python setup.py bdist_rpm --release="$(RELEASE)" --requires "Twisted, python-cjson, zope.interface, python-lounge, python-simplejson" $(PY_EXTRA)
+#clean:
+#	rm -f MANIFEST
+#	rm -rf dist build
+#	find . -name "*.pyc" -exec rm -f {} \;
+#	find . -name "*~" -exec rm -f {} \;
+#	find . -name "#*#" -exec rm -f {} \;
