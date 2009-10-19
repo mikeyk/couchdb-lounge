@@ -10,7 +10,7 @@ from twisted.python import log
 from lounge.prefs import Prefs
 from smartproxy.proxy import HTTPProxy
 
-prefs = Prefs(os.environ.get("PREFS",'/var/lounge/etc/smartproxy/smartproxy.xml'))
+prefs = Prefs(os.environ.get("PREFS",'/etc/lounge/smartproxy.xml'))
 
 http_port = prefs.get_pref("/http_port")
 

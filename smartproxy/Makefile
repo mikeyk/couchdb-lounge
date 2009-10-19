@@ -8,11 +8,17 @@ ifeq ($(PY_VERSION), Python 2.3.4)
 	PY_EXTRA=
 endif
 
+ifeq ($(strip $(DESTDIR)),)
+	root=
+else
+	root=--root $(DESTDIR)
+endif
+
 default:
 	python setup.py build
 
 install:
-	python setup.py install --root $(DESTDIR)
+	python setup.py install $(root)
 
 #default:
 #	echo $(PY_VERSION)

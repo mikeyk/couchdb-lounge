@@ -13,10 +13,10 @@ TWISTD_BINARY=`which twistd`
 [ -x $TWISTD_BINARY ] || (echo "missing twistd" && exit 1)
 
 TWISTED_NAME='smartproxy'
-TWISTED_FILE='/var/lounge/etc/smartproxy.tac'
-TWISTED_PID_DIR='/var/lounge/run/pid'
+TWISTED_FILE='/etc/lounge/smartproxy.tac'
+TWISTED_PID_DIR='/var/run/pid'
 TWISTED_PID="$TWISTED_PID_DIR/smartproxyd.pid"
-TWISTED_LOG='/var/lounge/log/smartproxyd.log'
+TWISTED_LOG='/var/log/lounge/smartproxyd.log'
 
 USER=`id -u root`
 GROUP=`id -g root`

@@ -8,6 +8,7 @@ all: $(SUBDIRS)
 install: $(SUBDIRS)
 	$(MAKE) -C dumbproxy install
 	$(MAKE) -C smartproxy install
+	$(MAKE) -C replicator install
 	$(MAKE) -C python-lounge install
 
 clean:
@@ -15,6 +16,8 @@ clean:
 	$(MAKE) -C smartproxy clean
 	$(MAKE) -C python-lounge clean
 
+distclean:
+	echo "distclean stub"
 
 SUBDIRS: $(SUBDIRS)
 
