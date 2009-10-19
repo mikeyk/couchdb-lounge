@@ -3,7 +3,7 @@
 # chkconfig: 3 90 14
 # Source function library.
 
-pidfile=/var/lounge/run/pid/dumbproxy.pid
+pidfile=/var/run/pid/nginx-lounge.pid
 
 if [ -f /etc/rc.d/init.d/functions ]; then
 	. /etc/rc.d/init.d/functions
@@ -17,7 +17,7 @@ fi
 
 start() {
 	echo -n $"Starting Lounge Dumbproxy (NGINX): "
-	$START /var/lounge/sbin/nginx
+	$START /usr/bin/nginx-lounge
 	RETVAL=$?
 	echo
 	return $RETVAL
@@ -25,7 +25,7 @@ start() {
 
 stop() {
 	echo -n $"Stopping Lounge Dumbproxy (NGINX): "
-	$STOP /var/lounge/sbin/nginx
+	$STOP /usr/bin/nginx-lounge
 	RETVAL=$?
 	echo
 	return $RETVAL
