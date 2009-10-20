@@ -13,13 +13,12 @@
 #limitations under the License.
 
 from twisted.internet import IPushProducer, IConsumer
-from twisted.web.client import HTTPClientFactory
-from twisted.web import client, http
+from twisted.web.client import HTTPClientFactory, HTTPPageGetter
 
 from zope.interface import implements
 
 
-class StreamingHTTPClient(http.HTTPClient):
+class StreamingHTTPClient(HTTPPageGetter):
         
 	# methods implemented in _PausableMixin
 	# inherited through _PausableMixin -> LineReceiver -> HTTPClient
@@ -38,15 +37,23 @@ class StreamingHTTPClient(http.HTTPClient):
 				# no consumer is listening, abort
 				self.transport.loseConnection()
 		else
-			http.HTTPClient.lineReceived(self, line)
+			HTTPPageGetter.lineReceived(self, line)
 
 	def rawDataReceived(self, data):
 		# since we stream lines switch back to line mode
 		self.setLineMode(data)
 
-class StreamingHTTPClientFactory(client.HTTPClientFactory):
+	def connectionMade(self):
+		self.factory.consumer.registerProducer(self, True)
+		HTTPPageGetter.connectionMade(self, reason)
+
+	def connectionLost(self, reason):
+		self.factory.consumer.unregisterProducer()
+		HTTPPageGetter.connectionLost(self, reason)
+
+class StreamingHTTPClientFactory(HTTPClientFactory):
         protocol = StreamingHTTPClient
 
         def __init__(self, url, method='GET', postdata=None, headers=None, agent="Lounge Streaming Client", timeout=0, cookies=None, followRedirect=1, consumer=None):
-                client.HTTPClientFactory.__init__(self, url,, method, postdata, headers, agent, timeout, cookies, followRedirect)
+                HTTPClientFactory.__init__(self, url,, method, postdata, headers, agent, timeout, cookies, followRedirect)
 		self.consumer = consumer
