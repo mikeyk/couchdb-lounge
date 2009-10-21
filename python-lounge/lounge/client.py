@@ -23,9 +23,6 @@ import urllib
 
 db_config = {
 	'local': 'http://localhost:5984/',
-	'dev':   'http://bfp4:6984/',
-	'prod':  'http://lounge:6984/',
-	'new_dev': 'http://bfp4.com:6984/',
 	}
 db_connectinfo = None
 db_prefix = ''
@@ -48,7 +45,7 @@ def use_config(cfg, testing=False):
 		db_prefix = ''
 
 # default to production config
-use_config('prod')
+use_config('local')
 
 class LoungeError(Exception):
 	def __init__(self, code, key=''):
