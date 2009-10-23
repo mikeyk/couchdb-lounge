@@ -473,9 +473,9 @@ class HTTPProxy(resource.Resource):
 
 		# farm it out.  generate a list of resources to PUT
 		shards = self.conf_data.shards(db_name)
-		nodes = []
+		nodes = set() # ensures once-per-node when replicas cohabitate
 		for shard in shards:
-			nodes += self.conf_data.nodes(shard)
+			nodes.update(self.conf_data.nodes(shard))
 
 		deferred = defer.Deferred()
 		deferred.addCallback(lambda s:
