@@ -360,7 +360,7 @@ class HTTPProxy(resource.Resource):
 
 		return server.NOT_DONE_YET
 	
-	def proxy_special(self, request, method):
+	def proxy_special(self, request):
 		"""Proxy a special document to a single shard (any shard will do, but start with the first)"""
 		deferred = defer.Deferred()
 
@@ -394,9 +394,9 @@ class HTTPProxy(resource.Resource):
 		_primary_urls = ['/'.join([host, rest]) for host in self.conf_data.primary_shards(database)]
 		primary_urls = [self._rewrite_url(url) for url in _primary_urls]
 		body = ''
-		if method=='PUT' or method=='POST':
+		if request.method=='PUT' or request.method=='POST':
 			body = request.content.read()
-		fetcher = ProxyFetcher("proxy", primary_urls, method, request.getAllHeaders(), body, deferred, self.client_queue)
+		fetcher = ProxyFetcher("proxy", primary_urls, request.method, request.getAllHeaders(), body, deferred, self.client_queue)
 		fetcher.fetch()
 		return server.NOT_DONE_YET
 
@@ -433,7 +433,7 @@ class HTTPProxy(resource.Resource):
 
 		# GET /db/_somethingspecial
 		if re.match(r'/[^/]+/_.*', request.uri):
-			return self.proxy_special(request, 'GET')
+			return self.proxy_special(request)
 
 		return cjson.encode({"error": "smartproxy is not smart enough for that request"})+"\n"
 	
@@ -441,12 +441,12 @@ class HTTPProxy(resource.Resource):
 		"""Handle a special PUT (design doc or database)"""
 		# PUT /db/_somethingspecial
 		if re.match(r'/[^/]+/_.*', request.uri):
-			return self.proxy_special(request, 'PUT')
+			return self.proxy_special(request)
 			#return cjson.encode({"stuff":"did not happen"})+"\n"
 
 		# create all shards for a database
 		if '/' not in request.uri.strip('/'):
-			return self.do_db_op(request, "PUT")
+			return self.do_db_op(request)
 
 		return cjson.encode({"error": "smartproxy is not smart enough for that request"})+"\n"
 	
@@ -454,22 +454,22 @@ class HTTPProxy(resource.Resource):
 		"""Create all the shards for a database."""
 		# PUT /db/_somethingspecial
 		if re.match(r'/[^/]+/_.*', request.uri):
-			return self.proxy_special(request, 'POST')
+			return self.proxy_special(request)
 
 		return cjson.encode({"error": "smartproxy is not smart enough for that request"})+"\n"
 	
 	def render_DELETE(self, request):
 		"""Delete all the shards for a database."""
-		return self.do_db_op(request, "DELETE")
+		return self.do_db_op(request)
 	
-	def do_db_op(self, request, method):
+	def do_db_op(self, request):
 		"""Do an operation on each shard in a database."""
 		# chop off the leading /
 		db_name = request.uri.strip('/')
 
 		# if there's another /, we are trying to put a document. very bad!
 		if '/' in db_name:
-			return cjson.encode({"error": "smartproxy got a " + method + " that's not a database.  whoops."})+"\n"
+			return cjson.encode({"error": "smartproxy got a " + request.method + " that's not a database.  whoops."})+"\n"
 
 		# farm it out.  generate a list of resources to PUT
 		shards = self.conf_data.shards(db_name)
@@ -497,7 +497,7 @@ class HTTPProxy(resource.Resource):
 			request.finish()
 		deferred.addErrback(handle_error)
 
-		f = DbFetcher(self.conf_data, nodes, deferred, method, self.client_queue)
+		f = DbFetcher(self.conf_data, nodes, deferred, request.method, self.client_queue)
 		f.fetch()
 		return server.NOT_DONE_YET
 	
