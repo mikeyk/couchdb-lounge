@@ -1,5 +1,8 @@
-from distutils.core import setup
-import os
+#!/usr/bin/env python
+try:
+	from setuptools import setup
+except ImportError:
+	from distutils.core import setup
 
 init_files = ('/etc/init.d/', ['smartproxyd'])
 conf_files = ('/etc/lounge/', ['smartproxy.xml', 'smartproxy.tac'])
