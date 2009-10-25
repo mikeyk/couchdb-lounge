@@ -540,17 +540,24 @@ class HTTPProxy(resource.Resource):
 	def do_db_op(self, request, method):
 		"""Do an operation on each shard in a database."""
 		# chop off the leading /
-		db_name = request.uri.strip('/')
+		uri = request.uri[1:]
+		if '/' in uri:
+			db_name, rest = uri.split('/', 1)
+		else:
+			db_name, rest = uri, ''
 
-		# if there's another /, we are trying to put a document. very bad!
-		if '/' in db_name:
-			return cjson.encode({"error": "smartproxy got a " + method + " that's not a database.  whoops."})+"\n"
+		# make sure it's an operation we support
+		if rest not in ['_ensure_full_commit']:
+			return cjson.encode({"error": "smartproxy got a " + method + " to %s.  don't know how to handle it"})+"\n"
 
 		# farm it out.  generate a list of resources to PUT
 		shards = self.conf_data.shards(db_name)
 		nodes = []
 		for shard in shards:
-			nodes += self.conf_data.nodes(shard)
+			if rest:
+				nodes += ['/'.join([db, rest]) for db in self.conf_data.nodes(shard)]
+			else:
+				nodes += self.conf_data.nodes(shard)
 
 		deferred = defer.Deferred()
 		deferred.addCallback(make_success_callback(request))
