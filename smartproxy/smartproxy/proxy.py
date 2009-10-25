@@ -115,6 +115,33 @@ class ClientQueue:
 		else:
 			log.debug("ClientQueue: queue size %d, reqs out %d" % (len(self.queue), self.count))
 
+def make_success_callback(request):
+	def send_output(params):
+		code, headers, doc = params
+		for k in headers:
+			if len(headers[k])>0:
+				request.setHeader(normalize_header(k), headers[k][0])
+		request.setResponseCode(code)
+		request.write(doc)
+		request.finish()
+	return send_output
+
+def make_errback(request):
+	def handle_error(s):
+		# if we get back some non-http response type error, we should
+		# return 500
+		if hasattr(s.value, 'status'):
+			status = int(s.value.status)
+		else:
+			status = 500
+		if hasattr(s.value, 'response'):
+			response = s.value.response
+		else:
+			response = '{}'
+		request.setResponseCode(status)
+		request.write(response+"\n") 
+		request.finish()
+	return handle_error
 
 class HTTPProxy(resource.Resource):
 	isLeaf = True
@@ -478,24 +505,8 @@ class HTTPProxy(resource.Resource):
 			nodes += self.conf_data.nodes(shard)
 
 		deferred = defer.Deferred()
-		deferred.addCallback(lambda s:
-									(request.write("{\"ok\":true}\n"), request.finish()))
-
-		def handle_error(s):
-			# if we get back some non-http response type error, we should
-			# return 500
-			if hasattr(s.value, 'status'):
-				status = int(s.value.status)
-			else:
-				status = 500
-			if hasattr(s.value, 'response'):
-				response = s.value.response
-			else:
-				response = '{}'
-			request.setResponseCode(status)
-			request.write(response+"\n") 
-			request.finish()
-		deferred.addErrback(handle_error)
+		deferred.addCallback(make_success_callback(request))
+		deferred.addErrback(make_errback(request))
 
 		f = DbFetcher(self.conf_data, nodes, deferred, method, self.client_queue)
 		f.fetch()

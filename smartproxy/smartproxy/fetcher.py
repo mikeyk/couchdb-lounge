@@ -21,6 +21,7 @@ import re
 import sys
 import time
 import urllib
+import urllib2
 
 import cjson
 
@@ -76,22 +77,32 @@ class DbFetcher(HttpFetcher):
 	"""Perform an HTTP request on all shards in a database."""
 	def __init__(self, config, nodes, deferred, method, client_queue):
 		self._method = method
+		self._config = config
 		HttpFetcher.__init__(self, config, nodes, deferred, client_queue)
 
 	def fetch(self):
 		self._remaining = len(self._remaining_nodes)
 		self._failed = False
 		for url in self._remaining_nodes:
-			deferred = client.getPage(url = url, method=self._method)
-			deferred.addCallback(self._onsuccess)
-			deferred.addErrback(self._onerror)
+			self.factory = getPageWithHeaders(url=url, method=self._method)
+			self.factory.deferred.addCallback(self._onsuccess)
+			self.factory.deferred.addErrback(self._onerror)
 	
 	def _onsuccess(self, data):
 		self._remaining -= 1
 		if self._remaining < 1:
 			# can't call the deferred twice
 			if not self._failed:
-				self._deferred.callback(data)
+				# rewrite the Location to be a proxied url
+				for k in self.factory.response_headers:
+					if k.lower()=='location':
+						# http://localhost/db5 -> http://localhost/db
+						url = self.factory.response_headers[k][0]
+						scheme, netloc, path, params, query, fragment = urllib2.urlparse.urlparse(url)
+						path = self._config.get_db_from_shard(path)
+						self.factory.response_headers[k] = [urllib2.urlparse.urlunparse((scheme, netloc, path, params, query, fragment))]
+
+				self._deferred.callback((int(self.factory.status), self.factory.response_headers, data))
 
 	def _onerror(self, data):
 		# don't retry on our all-database operations
