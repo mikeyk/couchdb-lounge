@@ -66,10 +66,11 @@ class HttpFetcher:
 			self.fetch()
 
 class MapResultFetcher(HttpFetcher):
-	def __init__(self, shard, nodes, reducer, deferred, client_queue, method='GET'):
+	def __init__(self, shard, nodes, reducer, deferred, client_queue, body='', method='GET'):
 		HttpFetcher.__init__(self, shard, nodes, deferred, client_queue)
 		self._method = method
 		self._reducer = reducer
+		self._body = body
 
 	def _onsuccess(self, page):
 		self._reducer.process_map(page, int(self.factory.status), self.factory.response_headers)
@@ -77,7 +78,10 @@ class MapResultFetcher(HttpFetcher):
 	def fetch(self):
 		url = self._remaining_nodes[0]
 		self._remaining_nodes = self._remaining_nodes[1:]
-		self.factory = getPageWithHeaders(url=url, method=self._method)
+		if self._method=='POST':
+			self.factory = getPageWithHeaders(url=url, postdata=self._body, method=self._method)
+		else:
+			self.factory = getPageWithHeaders(url=url, method=self._method)
 		self.factory.deferred.addCallback(self._onsuccess)
 		self.factory.deferred.addErrback(self._onerror)
 

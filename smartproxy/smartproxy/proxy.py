@@ -122,7 +122,7 @@ def make_success_callback(request):
 			if len(headers[k])>0:
 				request.setHeader(normalize_header(k), headers[k][0])
 		request.setResponseCode(code)
-		request.write(doc)
+		request.write(doc + "\n")
 		request.finish()
 	return send_output
 
@@ -215,8 +215,8 @@ class HTTPProxy(resource.Resource):
 		deferred.addCallback(make_success_callback(request))
 		deferred.addErrback(make_errback(request))
 
-		body = request.content.read()
-		body = cjson.decode(body)
+		raw_body = request.content.read()
+		body = cjson.decode(raw_body)
 		reduce_fn = body.get("reduce", None)
 		if reduce_fn is not None:
 			reduce_fn = reduce_fn.replace("\n", " ") # TODO do we need this?
@@ -243,7 +243,7 @@ class HTTPProxy(resource.Resource):
 
 			nodes = self.conf_data.nodes(shard)
 			urls = ['/'.join([node, req]) for node in nodes]
-			fetcher = MapResultFetcher(shard, urls, reducer, deferred, self.client_queue, method='POST')
+			fetcher = MapResultFetcher(shard, urls, reducer, deferred, self.client_queue, body=raw_body, method='POST')
 			fetcher.fetch()
 
 		return server.NOT_DONE_YET

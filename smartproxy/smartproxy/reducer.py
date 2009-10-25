@@ -176,7 +176,8 @@ class ReduceQueue:
 		self.pool = []
 		self.started = False
 		self.pool_size = pool_size
-		self.process = " /usr/lib64/couchdb/bin/couchjs /usr/share/couchdb/server/main.js".split()
+		#self.process = " /usr/lib64/couchdb/bin/couchjs /usr/share/couchdb/server/main.js".split()
+		self.process = " /usr/local/bin/couchjs /usr/local/share/couchdb/server/main.js".split()
 	
 	def start_reducers(self):
 		# we can't do this until after the reactor starts.
@@ -266,7 +267,7 @@ class Reducer:
 		self.coderecvd = None
 		self.headersrecvd = None
 
-	def process_map(self, data, code = None, headers = None):
+	def process_map(self, data, code=None, headers=None):
 		if code is not None:
 			self.coderecvd = code
 		if headers is not None:
@@ -329,9 +330,17 @@ class Reducer:
 					self.queue[0]['rows'] = self.queue[0]['rows'][0:self.count]
 				body = cjson.encode(self.queue[0])
 				if self.coderecvd is not None and self.headersrecvd is not None:
+					# content-length header will be a lie
+					topop = []
+					for k in self.headersrecvd:
+						if k.lower()=='content-length':
+							topop.append(k)
+					while topop:
+						self.headersrecvd.pop(topop.pop())
+
 					self.reduce_deferred.callback((self.coderecvd, self.headersrecvd, body))
 				else:
-					self.reduce_deferred.callback(cjson.encode(self.queue[0]))
+					self.reduce_deferred.callback(body)
 			return
 
 		a,b = self.queue[:2]
