@@ -521,8 +521,11 @@ class HTTPProxy(resource.Resource):
 		# POST /db/_temp_view .. or ..
 		# POST /db/_temp_view?options
 		if request.uri.endswith("/_temp_view") or ("/_temp_view?" in request.uri):
-			log.msg("render temp view")
 			return self.render_temp_view(request)
+
+		# POST /db/_ensure_full_commit
+		if request.uri.endswith("/_ensure_full_commit"):
+			return self.do_db_op(request, "POST")
 
 		# PUT /db/_somethingspecial
 		if re.match(r'/[^/]+/_.*', request.uri):
