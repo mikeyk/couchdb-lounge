@@ -29,6 +29,7 @@ from twisted.internet import defer
 from twisted.internet import protocol, reactor, defer, process, task, threads
 from twisted.protocols import basic
 from twisted.web import server, resource, client
+from twisted.web.http_headers import Headers
 from twisted.python.failure import DefaultException
 
 from reducer import Reducer
@@ -48,12 +49,12 @@ class HttpFetcher:
 		self._deferred = deferred
 		self.client_queue = client_queue
 
-	def fetch(self):
+	def fetch(self, request=None):
 		url = self._remaining_nodes[0]
 		self._remaining_nodes = self._remaining_nodes[1:]
 		self.client_queue.enqueue(url, self._onsuccess, self._onerror)
 
-	def _onsuccess(self, data):
+	def _onsuccess(self, result, *args, **kwargs):
 		pass
 
 	def _onerror(self, data):
@@ -69,7 +70,7 @@ class MapResultFetcher(HttpFetcher):
 		HttpFetcher.__init__(self, shard, nodes, deferred, client_queue)
 		self._reducer = reducer
 
-	def _onsuccess(self, page):
+	def _onsuccess(self, page, *args, **kwargs):
 		self._reducer.process_map(page)
 
 class DbFetcher(HttpFetcher):
@@ -78,20 +79,27 @@ class DbFetcher(HttpFetcher):
 		self._method = method
 		HttpFetcher.__init__(self, config, nodes, deferred, client_queue)
 
-	def fetch(self):
+	def fetch(self, request=None):
 		self._remaining = len(self._remaining_nodes)
 		self._failed = False
+		headers = request and request.getAllHeaders() or {}
 		for url in self._remaining_nodes:
-			deferred = client.getPage(url = url, method=self._method)
-			deferred.addCallback(self._onsuccess)
+			factory = getPageWithHeaders(url = url, method=self._method, headers=headers)
+			deferred = factory.deferred
+			deferred.addCallback(self._onsuccess, request=request, factory=factory)
 			deferred.addErrback(self._onerror)
 	
-	def _onsuccess(self, data):
+	def _onsuccess(self, data, *args, **kwargs):
 		self._remaining -= 1
 		if self._remaining < 1:
 			# can't call the deferred twice
 			if not self._failed:
-				self._deferred.callback(data)
+				# just send along the last headers
+				if 'request' in kwargs and 'factory' in kwargs:
+					kwargs['request'].responseHeaders = Headers(kwargs['factory'].response_headers)
+					# remove length, send chunked response
+					kwargs['request'].responseHeaders.removeHeader('content-length')
+				self._deferred.callback(None)
 
 	def _onerror(self, data):
 		# don't retry on our all-database operations
@@ -107,10 +115,10 @@ class ChangesFetcher(HttpFetcher):
 		self._reducer = reducer
 		self._shard = shard
 
-	def _onsuccess(self, page):
+	def _onsuccess(self, page, *args, **kwargs):
 		self._reducer.process_map(self._shard, page, self.factory.response_headers)
 
-	def fetch(self):
+	def fetch(self, request=None):
 		url = self._remaining_nodes[0]
 		self._remaining_nodes = self._remaining_nodes[1:]
 		self.factory = getPageWithHeaders(url=url, method='GET')
@@ -127,7 +135,7 @@ class DbGetter(DbFetcher):
 			"purge_seq_shards": {},       # ditto purge_seq
 			}
 	
-	def _onsuccess(self, data):
+	def _onsuccess(self, data, *args, **kwargs):
 		# accumulate results
 		res = cjson.decode(data)
 		self._acc["doc_count"] += res.get("doc_count",0)
@@ -150,6 +158,10 @@ class DbGetter(DbFetcher):
 
 		self._remaining -= 1
 		if self._remaining < 1:
+			if 'request' in kwargs and 'factory' in kwargs:
+				kwargs['request'].responseHeaders = Headers(kwargs['factory'].response_headers)
+				# remove length, send chunked response
+				kwargs['request'].responseHeaders.removeHeader('content-length')
 			self._deferred.callback(self._acc)
 
 class ReduceFunctionFetcher(HttpFetcher):
@@ -166,14 +178,14 @@ class ReduceFunctionFetcher(HttpFetcher):
 
 		self._do_reduce = (options.get("reduce","true")=="true")
 	
-	def fetch(self):
+	def fetch(self, request=None):
 		if self._do_reduce:
 			return HttpFetcher.fetch(self)
 		# if reduce=false, then we don't have to pull the reduce func out
 		# of the design doc.  Just go straight to the view
 		return self._onsuccess("{}")
 
-	def _onsuccess(self, page):
+	def _onsuccess(self, page, *args, **kwargs):
 		design_doc = cjson.decode(page)
 		reduce_func = design_doc.get("views",{}).get(self._view, {}).get("reduce", None)
 		if reduce_func is not None:
@@ -211,11 +223,15 @@ class AllDbFetcher(HttpFetcher):
 		HttpFetcher.__init__(self, "_all_dbs", nodes, deferred, client_queue)
 		self._config = config
 	
-	def _onsuccess(self, page):
+	def _onsuccess(self, page, *args, **kwargs):
 		# in is a list like ["test71", "test22", "funstuff102", ...]
 		# out is a list like ["test", "funstuff", ...]
 		shards = cjson.decode(page)
 		dbs = dict([(self._config.get_db_from_shard(shard), 1) for shard in shards])
+		if 'factory' in kwargs and 'request' in kwargs:
+			kwargs['request'].responseHeaders = Headers(kwargs['factory'].response_headers)
+			# remove length, send chunked response
+			kwargs['request'].responseHeaders.removeHeader('content-length')
 		self._deferred.callback(dbs.keys())
 
 class ProxyFetcher(HttpFetcher):
@@ -227,7 +243,7 @@ class ProxyFetcher(HttpFetcher):
 		self._headers = headers
 		self._body = body
 
-	def fetch(self):
+	def fetch(self, request=None):
 		url = self._remaining_nodes[0]
 		self._remaining_nodes = self._remaining_nodes[1:]
 		self._remaining_nodes = []
@@ -235,7 +251,7 @@ class ProxyFetcher(HttpFetcher):
 		self.factory.deferred.addCallback(self._onsuccess)
 		self.factory.deferred.addErrback(self._onerror)
 
-	def _onsuccess(self, page):
+	def _onsuccess(self, page, *args, **kwargs):
 		self._deferred.callback((int(self.factory.status), self.factory.response_headers, page))
 
 	def _onerror(self, data):

@@ -411,7 +411,7 @@ class HTTPProxy(resource.Resource):
 			deferred.addCallback(lambda s:
 				(request.write(cjson.encode(s)+"\n"), request.finish()))
 			all = AllDbFetcher(self.conf_data, db_urls, deferred, self.client_queue)
-			all.fetch()
+			all.fetch(request)
 			return server.NOT_DONE_YET
 
 		# GET /db
@@ -498,7 +498,7 @@ class HTTPProxy(resource.Resource):
 		deferred.addErrback(handle_error)
 
 		f = DbFetcher(self.conf_data, nodes, deferred, request.method, self.client_queue)
-		f.fetch()
+		f.fetch(request)
 		return server.NOT_DONE_YET
 	
 	def get_db(self, request):
@@ -529,7 +529,7 @@ class HTTPProxy(resource.Resource):
 		deferred.addErrback(handle_error)
 
 		f = DbGetter(self.conf_data, nodes, deferred, db_name, self.client_queue)
-		f.fetch()
+		f.fetch(request)
 		return server.NOT_DONE_YET
 
 	def _rewrite_url(self, url):
