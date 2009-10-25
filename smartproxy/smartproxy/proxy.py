@@ -209,6 +209,45 @@ class HTTPProxy(resource.Resource):
 		self.__last_load_time = mtime
 		self.conf_data = lounge.ShardMap(conf_file)
 
+	def render_temp_view(self, request):
+		"""Farm out a view query to all nodes and combine the results."""
+		deferred = defer.Deferred()
+		deferred.addCallback(make_success_callback(request))
+		deferred.addErrback(make_errback(request))
+
+		body = request.content.read()
+		body = cjson.decode(body)
+		reduce_fn = body.get("reduce", None)
+		if reduce_fn is not None:
+			reduce_fn = reduce_fn.replace("\n", " ") # TODO do we need this?
+
+		uri = request.uri[1:]
+		db, req = uri.split('/', 1)
+		shards = self.conf_data.shards(db)
+		reducer = Reducer(reduce_fn, len(shards), {}, deferred, self.reduce_queue)
+
+		failed = False
+		for shard in shards:
+			def succeed(data):
+				log.err("This should not get called?")
+				pass
+
+			def fail(data):
+				if not failed:
+					failed = True
+					deferred.errback(data)
+
+			shard_deferred = defer.Deferred()
+			shard_deferred.addCallback(succeed)
+			shard_deferred.addErrback(fail)
+
+			nodes = self.conf_data.nodes(shard)
+			urls = ['/'.join([node, req]) for node in nodes]
+			fetcher = MapResultFetcher(shard, urls, reducer, deferred, self.client_queue, method='POST')
+			fetcher.fetch()
+
+		return server.NOT_DONE_YET
+
 	def render_view(self, request):
 		"""Farm out a view query to all nodes and combine the results."""
 		request.setHeader('Content-Type', 'application/json')
@@ -479,6 +518,12 @@ class HTTPProxy(resource.Resource):
 	
 	def render_POST(self, request):
 		"""Create all the shards for a database."""
+		# POST /db/_temp_view .. or ..
+		# POST /db/_temp_view?options
+		if request.uri.endswith("/_temp_view") or ("/_temp_view?" in request.uri):
+			log.msg("render temp view")
+			return self.render_temp_view(request)
+
 		# PUT /db/_somethingspecial
 		if re.match(r'/[^/]+/_.*', request.uri):
 			return self.proxy_special(request, 'POST')

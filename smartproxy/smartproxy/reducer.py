@@ -263,8 +263,15 @@ class Reducer:
 		self.reduce_queue = reduce_queue
 		if 'count' in args:
 			self.count = int(args['count'][0])
+		self.coderecvd = None
+		self.headersrecvd = None
 
-	def process_map(self, data):
+	def process_map(self, data, code = None, headers = None):
+		if code is not None:
+			self.coderecvd = code
+		if headers is not None:
+			self.headersrecvd = headers
+
 		#TODO: check to make sure this doesn't go less than 0
 		self.num_entries_remaining = self.num_entries_remaining - 1
 		try:
@@ -320,7 +327,11 @@ class Reducer:
 				# if this was a count query, slice stuff off
 				if self.count is not None:
 					self.queue[0]['rows'] = self.queue[0]['rows'][0:self.count]
-				self.reduce_deferred.callback(cjson.encode(self.queue[0]))
+				body = cjson.encode(self.queue[0])
+				if self.coderecvd is not None and self.headersrecvd is not None:
+					self.reduce_deferred.callback((self.coderecvd, self.headersrecvd, body))
+				else:
+					self.reduce_deferred.callback(cjson.encode(self.queue[0]))
 			return
 
 		a,b = self.queue[:2]

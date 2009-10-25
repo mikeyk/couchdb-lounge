@@ -33,6 +33,7 @@ def req(url, method, body=None, headers=None):
 			inbuf = StringIO.StringIO(body)
 			curl.setopt(pycurl.INFILESIZE, len(body))
 			curl.setopt(pycurl.READFUNCTION, inbuf.read)
+		curl.setopt(pycurl.HTTPHEADER, ['Content-type: application/json'])
 
 	if method=='PUT':
 		curl.setopt(pycurl.UPLOAD, 1)
@@ -213,6 +214,41 @@ class ProxyTest(TestCase):
 			else:
 				assert False, "Got unexpected row %s" % row["id"]
 			self.assertEqual(encode(seq), row["seq"])
+
+	def testTempView(self):
+		"""Make a temp view."""
+		be1 = CouchStub()
+		be1.expect_POST("/funstuff0/_temp_view").reply(200, dict(
+			total_rows=2,
+			offset=0,
+			rows=[
+				{"id":"a", "key":"a", "value": "b"},
+				{"id":"c", "key":"c", "value": "d"}
+			]))
+		be1.listen("localhost", 23456)
+
+		be2 = CouchStub()
+		be2.expect_POST("/funstuff1/_temp_view").reply(200, dict(
+			total_rows=2,
+			offset=0,
+			rows=[
+				{"id":"x", "key":"b", "value": "c"},
+				{"id":"y", "key":"d", "value": "e"}
+			]))
+		be2.listen("localhost", 34567)
+
+		resp = post("http://localhost:22008/funstuff/_temp_view", body={"language":"javascript", "map": "function(doc) { emit(doc.x, doc.y); }"})
+
+		be1.verify()
+		be2.verify()
+
+		self.assertEqual(resp.body["total_rows"], 4)
+		self.assertEqual(resp.body["offset"], 0)
+		self.assertEqual(len(resp.body["rows"]), 4)
+		self.assertEqual(resp.body["rows"][0]["key"], "a")
+		self.assertEqual(resp.body["rows"][1]["key"], "b")
+		self.assertEqual(resp.body["rows"][2]["key"], "c")
+		self.assertEqual(resp.body["rows"][3]["key"], "d")
 
 if __name__=="__main__":
 	if os.environ.get("DEBUG",False):
