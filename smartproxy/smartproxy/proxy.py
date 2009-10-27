@@ -570,9 +570,12 @@ class HTTPProxy(resource.Resource):
 			db_name, rest = uri.split('/', 1)
 		else:
 			db_name, rest = uri, None
+		if rest=='':
+			rest = None
 
 		# make sure it's an operation we support
 		if rest not in [None, '_ensure_full_commit']:
+			request.setResponeCode(500)
 			return cjson.encode({"error": "smartproxy got a " + request.method + " to " + request.uri + ". don't know how to handle it"})+"\n"
 
 		# farm it out.  generate a list of resources to PUT
