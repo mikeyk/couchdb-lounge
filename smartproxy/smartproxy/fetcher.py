@@ -45,7 +45,6 @@ def getPageWithHeaders(url, *args, **kwargs):
 	return factory
 
 def prep_backend_headers(hed, cfg):
-	log.msg("prep_backend_headers " + str(hed))
 	# rewrite the Location to be a proxied url
 	to_remove = []
 	for k in hed:
@@ -57,7 +56,6 @@ def prep_backend_headers(hed, cfg):
 			if len(pieces)>0 and pieces[1]:
 				pieces[1] = cfg.get_db_from_shard(pieces[1])
 			path = '/'.join(pieces)
-			log.msg(k + " " + path + " " + url)
 			hed[k] = [urllib2.urlparse.urlunparse((scheme, netloc, path, params, query, fragment))]
 		elif k.lower()=='content-length':
 			to_remove.append(k)
@@ -310,7 +308,6 @@ class ProxyFetcher(HttpFetcher):
 	"""Pass along a GET, POST, or PUT."""
 	def __init__(self, name, nodes, method, headers, body, deferred, client_queue):
 		HttpFetcher.__init__(self, name, nodes, deferred, client_queue)
-		log.msg ('ProxyFetcher, nodes: %s' % nodes)
 		self._method = method
 		self._headers = headers
 		self._body = body
@@ -330,7 +327,5 @@ class ProxyFetcher(HttpFetcher):
 		log.msg("unable to fetch from node %s" % self._name)
 		data.printTraceback()
 		log.msg("traceback? : %s" % data.getTraceback())
-		log.msg("data: %s" % data)
-		log.msg("dir(data): %s" % dir(data))
 		self._deferred.errback(data)
 # vi: noexpandtab ts=2 sts=2 sw=2
