@@ -32,7 +32,7 @@ from twisted.protocols import basic
 from twisted.web import server, resource, client
 from twisted.python.failure import DefaultException
 
-from fetcher import HttpFetcher, MapResultFetcher, DbFetcher, DbGetter, ReduceFunctionFetcher, AllDbFetcher, ProxyFetcher, ChangesFetcher
+from fetcher import HttpFetcher, MapResultFetcher, DbFetcher, DbGetter, ReduceFunctionFetcher, AllDbFetcher, ProxyFetcher, ChangesFetcher, UuidFetcher
 
 from reducer import ReduceQueue, ReducerProcessProtocol, Reducer, AllDocsReducer, ChangesReducer
 
@@ -122,7 +122,7 @@ def make_success_callback(request):
 			if len(headers[k])>0:
 				request.setHeader(normalize_header(k), headers[k][0])
 		request.setResponseCode(code)
-		request.write(doc + "\n")
+		request.write(doc)
 		request.finish()
 	return send_output
 
@@ -531,11 +531,35 @@ class HTTPProxy(resource.Resource):
 		if re.match(r'/[^/]+/_.*', request.uri):
 			return self.proxy_special(request, 'POST')
 
+		if request.method=='POST' and (not '/' in request.uri[1:]):
+			return self.create_doc(request)
+
 		return cjson.encode({"error": "smartproxy is not smart enough for that request"})+"\n"
 	
 	def render_DELETE(self, request):
 		"""Delete all the shards for a database."""
 		return self.do_db_op(request, "DELETE")
+	
+	def create_doc(self, request):
+		"""Create a document via POST.
+
+		1. Ask any node for a UUID
+		2. Hash the UUID to find a shard
+		3. PUT the document to that shard
+		"""
+		db_name = request.uri[1:]
+		nodes = self.conf_data.nodes()
+		urls = [node + '_uuids' for node in nodes]
+
+		body = request.content.read()
+		deferred = defer.Deferred()
+		deferred.addCallback(make_success_callback(request))
+		deferred.addErrback(make_errback(request))
+		log.msg("fetching uuids from " + str(urls))
+		fetcher = UuidFetcher(db_name, urls, deferred, body, self.conf_data)
+		fetcher.fetch()
+
+		return server.NOT_DONE_YET
 	
 	def do_db_op(self, request, method):
 		"""Do an operation on each shard in a database."""
@@ -544,10 +568,10 @@ class HTTPProxy(resource.Resource):
 		if '/' in uri:
 			db_name, rest = uri.split('/', 1)
 		else:
-			db_name, rest = uri, ''
+			db_name, rest = uri, None
 
 		# make sure it's an operation we support
-		if rest not in ['_ensure_full_commit']:
+		if rest not in [None, '_ensure_full_commit']:
 			return cjson.encode({"error": "smartproxy got a " + method + " to %s.  don't know how to handle it"})+"\n"
 
 		# farm it out.  generate a list of resources to PUT

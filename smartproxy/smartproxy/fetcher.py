@@ -22,6 +22,7 @@ import sys
 import time
 import urllib
 import urllib2
+import zlib
 
 import cjson
 
@@ -64,6 +65,43 @@ class HttpFetcher:
 			self._deferred.errback(data)
 		else:
 			self.fetch()
+
+class UuidFetcher(HttpFetcher):
+	def __init__(self, db, urls, deferred, body, conf):
+		HttpFetcher.__init__(self, "uuids", urls, deferred, None)
+		self._db = db
+		self._body = body
+		self._conf = conf
+
+	def fetch(self):
+		url = self._remaining_nodes[0]
+		self._remaining_nodes = self._remaining_nodes[1:]
+		d = client.getPage(url)
+		d.addCallback(self._onsuccess)
+		d.addErrback(self._onerror)
+	
+	def _onsuccess(self, page):
+		uuid = cjson.decode(page)["uuids"][0]
+		# identify the shard for this uui
+		shards = self._conf.primary_shards(self._db)
+		idx = zlib.crc32(uuid, 0) % len(shards)
+		shard = shards[idx]
+
+		def succeed(data):
+			self._deferred.callback((int(self.factory.status), self.factory.response_headers, data))
+		def fail(data):
+			self._deferred.errback(data)
+		self.factory = getPageWithHeaders('/'.join([shard, uuid]), method='PUT', postdata=self._body)
+		self.factory.deferred.addCallback(succeed)
+		self.factory.deferred.addErrback(fail)
+
+def getPageWithHeaders(url, *args, **kwargs):
+	# basically a clone of client.getPage, but with a handle on the factory
+	# so we can pull the headers later
+	scheme, host, port, path = client._parse(url)
+	factory = client.HTTPClientFactory(url, *args, **kwargs)
+	reactor.connectTCP(host, port, factory)
+	return factory
 
 class MapResultFetcher(HttpFetcher):
 	def __init__(self, shard, nodes, reducer, deferred, client_queue, body='', method='GET'):
