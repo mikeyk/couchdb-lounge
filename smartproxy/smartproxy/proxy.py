@@ -556,9 +556,13 @@ class HTTPProxy(resource.Resource):
 		deferred = defer.Deferred()
 		deferred.addCallback(make_success_callback(request))
 		deferred.addErrback(make_errback(request))
-		log.msg("fetching uuids from " + str(urls))
 		fetcher = UuidFetcher(db_name, urls, deferred, body, self.conf_data)
-		fetcher.fetch()
+
+		doc = cjson.decode(body)
+		if '_id' in doc:
+			fetcher.put_doc(doc['_id'])
+		else:
+			fetcher.fetch()
 
 		return server.NOT_DONE_YET
 	

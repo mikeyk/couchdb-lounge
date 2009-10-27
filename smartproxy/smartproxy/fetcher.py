@@ -44,6 +44,27 @@ def getPageWithHeaders(url, *args, **kwargs):
 	reactor.connectTCP(host, port, factory)
 	return factory
 
+def prep_backend_headers(hed, cfg):
+	log.msg("prep_backend_headers " + str(hed))
+	# rewrite the Location to be a proxied url
+	to_remove = []
+	for k in hed:
+		if k.lower()=='location':
+			# http://localhost/db5 -> http://localhost/db
+			url = hed[k][0]
+			scheme, netloc, path, params, query, fragment = urllib2.urlparse.urlparse(url)
+			pieces = path.split('/')
+			if len(pieces)>0 and pieces[1]:
+				pieces[1] = cfg.get_db_from_shard(pieces[1])
+			path = '/'.join(pieces)
+			log.msg(k + " " + path + " " + url)
+			hed[k] = [urllib2.urlparse.urlunparse((scheme, netloc, path, params, query, fragment))]
+		elif k.lower()=='content-length':
+			to_remove.append(k)
+	for k in to_remove:
+		hed.pop(k)
+	return hed
+
 class HttpFetcher:
 	def __init__(self, name, nodes, deferred, client_queue):
 		self._name = name
@@ -72,7 +93,7 @@ class UuidFetcher(HttpFetcher):
 		HttpFetcher.__init__(self, "uuids", urls, deferred, None)
 		self._db = db
 		self._body = body
-		self._conf = conf
+		self._config = conf
 
 	def fetch(self):
 		url = self._remaining_nodes[0]
@@ -83,16 +104,20 @@ class UuidFetcher(HttpFetcher):
 	
 	def _onsuccess(self, page):
 		uuid = cjson.decode(page)["uuids"][0]
+
+		self.put_doc(uuid)
+	
+	def put_doc(self, id):
 		# identify the shard for this uui
-		shards = self._conf.primary_shards(self._db)
-		idx = zlib.crc32(uuid, 0) % len(shards)
+		shards = self._config.primary_shards(self._db)
+		idx = (zlib.crc32(id, 0) >> 16) % len(shards)
 		shard = shards[idx]
 
 		def succeed(data):
-			self._deferred.callback((int(self.factory.status), self.factory.response_headers, data))
+			self._deferred.callback((int(self.factory.status), prep_backend_headers(self.factory.response_headers, self._config), data))
 		def fail(data):
 			self._deferred.errback(data)
-		self.factory = getPageWithHeaders('/'.join([shard, uuid]), method='PUT', postdata=self._body)
+		self.factory = getPageWithHeaders('/'.join([shard, id]), method='PUT', postdata=self._body)
 		self.factory.deferred.addCallback(succeed)
 		self.factory.deferred.addErrback(fail)
 
@@ -146,20 +171,7 @@ class DbFetcher(HttpFetcher):
 		if self._remaining < 1:
 			# can't call the deferred twice
 			if not self._failed:
-				# rewrite the Location to be a proxied url
-				to_remove = []
-				for k in factory.response_headers:
-					if k.lower()=='location':
-						# http://localhost/db5 -> http://localhost/db
-						url = factory.response_headers[k][0]
-						scheme, netloc, path, params, query, fragment = urllib2.urlparse.urlparse(url)
-						path = self._config.get_db_from_shard(path)
-						factory.response_headers[k] = [urllib2.urlparse.urlunparse((scheme, netloc, path, params, query, fragment))]
-					elif k.lower()=='content-length':
-						to_remove.append(k)
-				for k in to_remove:
-					factory.response_headers.pop(k)
-				self._deferred.callback((int(factory.status), factory.response_headers, data))
+				self._deferred.callback((int(factory.status), prep_backend_headers(factory.response_headers, self._config), data))
 
 	def _onerror(self, data):
 		# don't retry on our all-database operations
