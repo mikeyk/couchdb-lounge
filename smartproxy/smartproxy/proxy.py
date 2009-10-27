@@ -121,6 +121,7 @@ def make_success_callback(request):
 		for k in headers:
 			if len(headers[k])>0:
 				request.setHeader(normalize_header(k), headers[k][0])
+		request.setHeader('Content-Length', str(len(doc)))
 		request.setResponseCode(code)
 		request.write(doc)
 		request.finish()
@@ -426,7 +427,7 @@ class HTTPProxy(resource.Resource):
 
 		return server.NOT_DONE_YET
 	
-	def proxy_special(self, request, method):
+	def proxy_special(self, request):
 		"""Proxy a special document to a single shard (any shard will do, but start with the first)"""
 		deferred = defer.Deferred()
 
@@ -460,9 +461,9 @@ class HTTPProxy(resource.Resource):
 		_primary_urls = ['/'.join([host, rest]) for host in self.conf_data.primary_shards(database)]
 		primary_urls = [self._rewrite_url(url) for url in _primary_urls]
 		body = ''
-		if method=='PUT' or method=='POST':
+		if request.method=='PUT' or request.method=='POST':
 			body = request.content.read()
-		fetcher = ProxyFetcher("proxy", primary_urls, method, request.getAllHeaders(), body, deferred, self.client_queue)
+		fetcher = ProxyFetcher("proxy", primary_urls, request.method, request.getAllHeaders(), body, deferred, self.client_queue)
 		fetcher.fetch()
 		return server.NOT_DONE_YET
 
@@ -477,7 +478,7 @@ class HTTPProxy(resource.Resource):
 			deferred.addCallback(lambda s:
 				(request.write(cjson.encode(s)+"\n"), request.finish()))
 			all = AllDbFetcher(self.conf_data, db_urls, deferred, self.client_queue)
-			all.fetch()
+			all.fetch(request)
 			return server.NOT_DONE_YET
 
 		# GET /db
@@ -499,7 +500,7 @@ class HTTPProxy(resource.Resource):
 
 		# GET /db/_somethingspecial
 		if re.match(r'/[^/]+/_.*', request.uri):
-			return self.proxy_special(request, 'GET')
+			return self.proxy_special(request)
 
 		return cjson.encode({"error": "smartproxy is not smart enough for that request"})+"\n"
 	
@@ -507,12 +508,12 @@ class HTTPProxy(resource.Resource):
 		"""Handle a special PUT (design doc or database)"""
 		# PUT /db/_somethingspecial
 		if re.match(r'/[^/]+/_.*', request.uri):
-			return self.proxy_special(request, 'PUT')
+			return self.proxy_special(request)
 			#return cjson.encode({"stuff":"did not happen"})+"\n"
 
 		# create all shards for a database
 		if '/' not in request.uri.strip('/'):
-			return self.do_db_op(request, "PUT")
+			return self.do_db_op(request)
 
 		return cjson.encode({"error": "smartproxy is not smart enough for that request"})+"\n"
 	
@@ -525,11 +526,11 @@ class HTTPProxy(resource.Resource):
 
 		# POST /db/_ensure_full_commit
 		if request.uri.endswith("/_ensure_full_commit"):
-			return self.do_db_op(request, "POST")
+			return self.do_db_op(request)
 
 		# PUT /db/_somethingspecial
 		if re.match(r'/[^/]+/_.*', request.uri):
-			return self.proxy_special(request, 'POST')
+			return self.proxy_special(request)
 
 		if request.method=='POST' and (not '/' in request.uri[1:]):
 			return self.create_doc(request)
@@ -538,7 +539,7 @@ class HTTPProxy(resource.Resource):
 	
 	def render_DELETE(self, request):
 		"""Delete all the shards for a database."""
-		return self.do_db_op(request, "DELETE")
+		return self.do_db_op(request)
 	
 	def create_doc(self, request):
 		"""Create a document via POST.
@@ -561,7 +562,7 @@ class HTTPProxy(resource.Resource):
 
 		return server.NOT_DONE_YET
 	
-	def do_db_op(self, request, method):
+	def do_db_op(self, request):
 		"""Do an operation on each shard in a database."""
 		# chop off the leading /
 		uri = request.uri[1:]
@@ -572,23 +573,23 @@ class HTTPProxy(resource.Resource):
 
 		# make sure it's an operation we support
 		if rest not in [None, '_ensure_full_commit']:
-			return cjson.encode({"error": "smartproxy got a " + method + " to %s.  don't know how to handle it"})+"\n"
+			return cjson.encode({"error": "smartproxy got a " + request.method + " to " + request.uri + ". don't know how to handle it"})+"\n"
 
 		# farm it out.  generate a list of resources to PUT
 		shards = self.conf_data.shards(db_name)
-		nodes = []
+		nodes = set() # ensures once-per-node when replicas cohabitate
 		for shard in shards:
 			if rest:
-				nodes += ['/'.join([db, rest]) for db in self.conf_data.nodes(shard)]
+				nodes.update(['/'.join([db, rest]) for db in self.conf_data.nodes(shard)])
 			else:
-				nodes += self.conf_data.nodes(shard)
+				nodes.update(self.conf_data.nodes(shard))
 
 		deferred = defer.Deferred()
 		deferred.addCallback(make_success_callback(request))
 		deferred.addErrback(make_errback(request))
 
-		f = DbFetcher(self.conf_data, nodes, deferred, method, self.client_queue)
-		f.fetch()
+		f = DbFetcher(self.conf_data, nodes, deferred, request.method, self.client_queue)
+		f.fetch(request)
 		return server.NOT_DONE_YET
 	
 	def get_db(self, request):
@@ -619,7 +620,7 @@ class HTTPProxy(resource.Resource):
 		deferred.addErrback(handle_error)
 
 		f = DbGetter(self.conf_data, nodes, deferred, db_name, self.client_queue)
-		f.fetch()
+		f.fetch(request)
 		return server.NOT_DONE_YET
 
 	def _rewrite_url(self, url):
