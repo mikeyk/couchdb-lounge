@@ -90,6 +90,8 @@ class UuidFetcher(HttpFetcher):
 	def __init__(self, db, urls, deferred, body, conf):
 		HttpFetcher.__init__(self, "uuids", urls, deferred, None)
 		self._db = db
+		if self._db.endswith('/'):
+			self._db = self._db[:-1]
 		self._body = body
 		self._config = conf
 

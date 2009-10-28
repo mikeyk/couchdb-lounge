@@ -519,6 +519,12 @@ class HTTPProxy(resource.Resource):
 	
 	def render_POST(self, request):
 		"""Create all the shards for a database."""
+		db, rest = request.uri[1:], None
+		if '/' in db:
+			db, rest = request.uri[1:].split('/',1)
+			if rest=='':
+				rest = None
+
 		# POST /db/_temp_view .. or ..
 		# POST /db/_temp_view?options
 		if request.uri.endswith("/_temp_view") or ("/_temp_view?" in request.uri):
@@ -532,7 +538,7 @@ class HTTPProxy(resource.Resource):
 		if re.match(r'/[^/]+/_.*', request.uri):
 			return self.proxy_special(request)
 
-		if request.method=='POST' and (not '/' in request.uri[1:]):
+		if rest is None:
 			return self.create_doc(request)
 
 		return cjson.encode({"error": "smartproxy is not smart enough for that request"})+"\n"
@@ -562,6 +568,7 @@ class HTTPProxy(resource.Resource):
 		if '_id' in doc:
 			fetcher.put_doc(doc['_id'])
 		else:
+			log.msg("create_doc " + request.uri + " fetching")
 			fetcher.fetch()
 
 		return server.NOT_DONE_YET
