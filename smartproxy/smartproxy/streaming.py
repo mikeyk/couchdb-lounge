@@ -32,10 +32,13 @@ class StreamingHTTPClient(HTTPPageGetter):
 	def lineReceived(self, line):
 		if self.body:
 			try:
-				self.factory.consumer.write(line)
+				self.factory.consumer.write((self.factory.shard_idx, line))
 			except:
 				# no consumer is listening, abort
 				self.transport.loseConnection()
+			# tell consumer we're done
+			if 'last_seq' in line:
+				self.transport.lostConnection()
 		else:
 			HTTPPageGetter.lineReceived(self, line)
 	
@@ -54,7 +57,8 @@ class StreamingHTTPClient(HTTPPageGetter):
 class StreamingHTTPClientFactory(HTTPClientFactory):
 	protocol = StreamingHTTPClient 
 	
-	def __init__(self, url, method='GET', postdata=None, headers=None, agent="Lounge Streaming Client", timeout=0, cookies=None, followRedirect=1, consumer=None):
+	def __init__(self, url, method='GET', postdata=None, headers=None, agent="Lounge Streaming Client", timeout=0, cookies=None, followRedirect=1, consumer=None, shard_idx=None):
 		HTTPClientFactory.__init__(self, url, method, postdata, headers, agent, timeout, cookies, followRedirect)
 		self.consumer = consumer
+		self.shard_idx = shard_idx
 # vi: noexpandtab ts=4 sts=4 sw=4

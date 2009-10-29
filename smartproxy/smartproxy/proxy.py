@@ -370,20 +370,25 @@ class HTTPProxy(resource.Resource):
 		class ChangesMerger:
 			implements(IConsumer)
 
-			def __init__(self, request):
+			def __init__(self, request, since):
 				self.request = request
+				self.seq = copy.copy(since)
 
 			def registerProducer(self, producer, streaming):
-				log.msg("registerProducer")
+				pass
 
 			def unregisterProducer(self):
-				log.msg("unregisterProducer")
+				pass
 
 			def write(self, data):
-				log.msg("Got " + data)
-				self.request.write(data + "\n")
+				shard_idx, line = data
+				row = cjson.decode(line)
+				self.seq[shard_idx] = row['seq']
+				row['seq'] = cjson.encode(self.seq)
 
-		consumer = ChangesMerger(request)
+				self.request.write(cjson.encode(row) + "\n")
+
+		consumer = ChangesMerger(request, since)
 
 		shard_args = {'feed': 'continuous'}
 		urls = []
@@ -393,7 +398,7 @@ class HTTPProxy(resource.Resource):
 			# TODO failover to the slaves
 			url = urls[0]
 			log.msg("connecting factory to " + url)
-			factory = streaming.StreamingHTTPClientFactory(url, consumer=consumer)
+			factory = streaming.StreamingHTTPClientFactory(url, consumer=consumer, shard_idx=i)
 			scheme, host, port, path = client._parse(url)
 			reactor.connectTCP(host, port, factory)
 
