@@ -12,7 +12,7 @@ cache_files = ('/usr/lounge/lib/smartproxy', ['cache.dat'])
 
 data_files = [init_files, conf_files, check_files, cron_files, cache_files]
 
-py_modules = ["smartproxy.proxy", "smartproxy.fetcher", "smartproxy.reducer"]
+py_modules = ["smartproxy.proxy", "smartproxy.fetcher", "smartproxy.reducer", "smartproxy.streaming"]
 
 setup( version = '1.1',
 	   name = 'lounge-smartproxy',

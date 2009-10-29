@@ -13,6 +13,7 @@
 #limitations under the License.
 
 import atexit
+import cjson
 import cPickle
 import copy
 import lounge
@@ -23,11 +24,12 @@ import sys
 import time
 import urllib
 
-import cjson
+from zope.interface import implements
 
 from twisted.python import log
 from twisted.internet import defer
 from twisted.internet import protocol, reactor, defer, process, task, threads
+from twisted.internet.interfaces import IConsumer
 from twisted.protocols import basic
 from twisted.web import server, resource, client
 from twisted.python.failure import DefaultException
@@ -35,6 +37,8 @@ from twisted.python.failure import DefaultException
 from fetcher import HttpFetcher, MapResultFetcher, DbFetcher, DbGetter, ReduceFunctionFetcher, AllDbFetcher, ProxyFetcher, ChangesFetcher, UuidFetcher
 
 from reducer import ReduceQueue, ReducerProcessProtocol, Reducer, AllDocsReducer, ChangesReducer
+
+import streaming
 
 def normalize_header(h):
 	return '-'.join([word.capitalize() for word in h.split('-')])
@@ -355,11 +359,55 @@ class HTTPProxy(resource.Resource):
 			return cached_result
 		return server.NOT_DONE_YET
 	
+	def render_continuous_changes(self, request, database, args):
+		shards = self.conf_data.shards(database)
+
+		if 'since' in args:
+			since = cjson.decode(args['since'])
+		else:
+			since = len(shards)*[0]
+
+		class ChangesMerger:
+			implements(IConsumer)
+
+			def __init__(self, request):
+				self.request = request
+
+			def registerProducer(self, producer, streaming):
+				log.msg("registerProducer")
+
+			def unregisterProducer(self):
+				log.msg("unregisterProducer")
+
+			def write(self, data):
+				log.msg("Got " + data)
+				self.request.write(data + "\n")
+
+		consumer = ChangesMerger(request)
+
+		shard_args = {'feed': 'continuous'}
+		urls = []
+		for i,shard in enumerate(shards):
+			shard_args['since'] = since[i]
+			urls = [node + '/_changes?' + urllib.urlencode(shard_args) for node in self.conf_data.nodes(shard)]
+			# TODO failover to the slaves
+			url = urls[0]
+			log.msg("connecting factory to " + url)
+			factory = streaming.StreamingHTTPClientFactory(url, consumer=consumer)
+			scheme, host, port, path = client._parse(url)
+			reactor.connectTCP(host, port, factory)
+
+		return server.NOT_DONE_YET
+	
 	def render_changes(self, request):
 		database, changes = request.uri[1:].split('/', 1)
 		qs = ''
 		if '?' in changes:
 			changes, qs = changes.split('?', 1)
+		args = qsparse(qs)
+
+		if args.get('feed','nofeed')=='continuous':
+			return self.render_continuous_changes(request, database, args)
 
 		deferred = defer.Deferred()
 
@@ -392,7 +440,6 @@ class HTTPProxy(resource.Resource):
 		deferred.addErrback(handle_error)
 
 		shards = self.conf_data.shards(database)
-		args = qsparse(qs)
 		seq = cjson.decode(args.get('since', cjson.encode([0 for shard in shards])))
 		reducer = ChangesReducer(seq, deferred)
 		for shard,shard_seq in zip(shards, seq):

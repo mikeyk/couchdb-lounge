@@ -4,7 +4,7 @@
 #you may not use this file except in compliance with the License.
 #You may obtain a copy of the License at
 #
-#    http://www.apache.org/licenses/LICENSE-2.0
+#	http://www.apache.org/licenses/LICENSE-2.0
 #
 #Unless required by applicable law or agreed to in writing, software
 #distributed under the License is distributed on an "AS IS" BASIS,
@@ -12,48 +12,49 @@
 #See the License for the specific language governing permissions and
 #limitations under the License.
 
-from twisted.internet import IPushProducer, IConsumer
+from twisted.internet.interfaces import IPushProducer, IConsumer
+from twisted.python import log
 from twisted.web.client import HTTPClientFactory, HTTPPageGetter
 
 from zope.interface import implements
 
-
 class StreamingHTTPClient(HTTPPageGetter):
-        
 	# methods implemented in _PausableMixin
 	# inherited through _PausableMixin -> LineReceiver -> HTTPClient
 	implements(IPushProducer)
-	
 	body = False
 	
 	def handleEndHeaders(self):
-		body = True
+		HTTPPageGetter.handleEndHeaders(self)
+		self.body = True
+		self.delimiter = "\n"
 
 	def lineReceived(self, line):
-		if body:
+		if self.body:
 			try:
 				self.factory.consumer.write(line)
 			except:
 				# no consumer is listening, abort
 				self.transport.loseConnection()
-		else
+		else:
 			HTTPPageGetter.lineReceived(self, line)
-
+	
 	def rawDataReceived(self, data):
 		# since we stream lines switch back to line mode
 		self.setLineMode(data)
 
 	def connectionMade(self):
 		self.factory.consumer.registerProducer(self, True)
-		HTTPPageGetter.connectionMade(self, reason)
+		HTTPPageGetter.connectionMade(self)
 
 	def connectionLost(self, reason):
 		self.factory.consumer.unregisterProducer()
 		HTTPPageGetter.connectionLost(self, reason)
 
 class StreamingHTTPClientFactory(HTTPClientFactory):
-        protocol = StreamingHTTPClient
-
-        def __init__(self, url, method='GET', postdata=None, headers=None, agent="Lounge Streaming Client", timeout=0, cookies=None, followRedirect=1, consumer=None):
-                HTTPClientFactory.__init__(self, url,, method, postdata, headers, agent, timeout, cookies, followRedirect)
+	protocol = StreamingHTTPClient 
+	
+	def __init__(self, url, method='GET', postdata=None, headers=None, agent="Lounge Streaming Client", timeout=0, cookies=None, followRedirect=1, consumer=None):
+		HTTPClientFactory.__init__(self, url, method, postdata, headers, agent, timeout, cookies, followRedirect)
 		self.consumer = consumer
+# vi: noexpandtab ts=4 sts=4 sw=4
