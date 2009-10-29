@@ -97,7 +97,7 @@ class ProxyTest(TestCase):
 			db_name="test0", 
 			doc_count=5, 
 			doc_del_count=1,
-			update_seq=0,
+			update_seq=8,
 			purge_seq=0,
 			compact_running=False,
 			disk_size=16384,
@@ -109,7 +109,7 @@ class ProxyTest(TestCase):
 			db_name="test1", 
 			doc_count=10, 
 			doc_del_count=2,
-			update_seq=0,
+			update_seq=16,
 			purge_seq=0,
 			compact_running=False,
 			disk_size=16384,
@@ -126,6 +126,7 @@ class ProxyTest(TestCase):
 		self.assertEqual(resp.body['doc_count'], 15)
 		self.assertEqual(resp.body['doc_del_count'], 3)
 		self.assertEqual(resp.body['disk_size'], 32768)
+		self.assertEqual(resp.body['update_seq'], '[8, 16]')
 
 	def testGetMissingDB(self):
 		"""Try to GET information on a missing database."""
@@ -179,7 +180,7 @@ class ProxyTest(TestCase):
 			results=[
 				{"seq": 6, "id": "mywallet", "changes":[{"rev": "1-2345"}]},
 				{"seq": 7, "id": "elsegundo", "changes":[{"rev": "2-3456"}]}
-			]),headers={"Content-Type": "text/plain;charset=utf8"})
+			],last_seq=7),headers={"Content-Type": "text/plain;charset=utf8"})
 		be1.listen("localhost", 23456)
 
 		be2 = CouchStub()
@@ -187,7 +188,7 @@ class ProxyTest(TestCase):
 			results=[
 				{"seq": 13, "id": "gottagetit", "changes":[{"rev": "1-2345"}]},
 				{"seq": 14, "id": "gotgottogetit", "changes":[{"rev": "2-3456"}]}
-			]),headers={"Content-Type": "text/plain;charset=utf8"})
+			],last_seq=14),headers={"Content-Type": "text/plain;charset=utf8"})
 		be2.listen("localhost", 34567)
 
 		resp = get("http://localhost:22008/funstuff/_changes?since=%s" % urllib.quote(simplejson.dumps([5,12])))
@@ -214,6 +215,7 @@ class ProxyTest(TestCase):
 			else:
 				assert False, "Got unexpected row %s" % row["id"]
 			self.assertEqual(encode(seq), row["seq"])
+		self.assertEqual(encode([7,14]), resp.body['last_seq'])
 
 	def testTempView(self):
 		"""Make a temp view."""

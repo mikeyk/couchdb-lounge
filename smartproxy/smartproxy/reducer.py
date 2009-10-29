@@ -154,11 +154,13 @@ def unique_merge(rows1, rows2, compare=cmp):
 		out += rows2[j:]
 	return out
 
-def merge(r1, r2, compare=json_cmp, unique=False):
+def merge(r1, r2, compare=json_cmp, unique=False, descending=False):
 	"""Merge the results from r2 into r1."""
 	rows1 = r1["rows"]
 	rows2 = r2["rows"]
 	merge_fn = unique and unique_merge or dup_merge
+	if descending:
+		compare = lambda x, y: compare(y, x)
 	r1["rows"] = merge_fn(rows1, rows2, compare)
 	if "total_rows" in r2:
 		if not ("total_rows" in r1):
@@ -267,6 +269,9 @@ class Reducer:
 		self.coderecvd = None
 		self.headersrecvd = None
 
+		self.descending = args.get('descending', 'false')
+		self.descending = (self.descending=='true') and True or False
+
 	def process_map(self, data, code=None, headers=None):
 		if code is not None:
 			self.coderecvd = code
@@ -354,12 +359,13 @@ class Reducer:
 class AllDocsReducer(Reducer):
 	def _do_reduce(self, a, b):
 		# merge and unique.  no reduce
-		self.queue_data(merge(a, b, unique=True))
+		self.queue_data(merge(a, b, unique=True, descending=self.descending))
 
 class ChangesReducer(Reducer):
 	def __init__(self, seq, deferred):
 		self._sequence = seq
 		self._results = []
+		self._lastseq = [0 for x in seq]
 		self._response_headers = None
 		Reducer.__init__(self, None, len(self._sequence), {}, deferred, None)
 
@@ -376,12 +382,14 @@ class ChangesReducer(Reducer):
 	
 	def queue_data(self, shard_idx, a):
 		"""Mash _changes sequences together."""
+		if "last_seq" in a:
+			self._lastseq[shard_idx] = a["last_seq"]
 		for change in a["results"]:
 			self._sequence[shard_idx] = change["seq"]
 			change["seq"] = cjson.encode(self._sequence)
 			self._results.append(change)
 
 		if self.num_entries_remaining == 0:
-			self.reduce_deferred.callback((200, self._response_headers, cjson.encode({"results": self._results})))
+			self.reduce_deferred.callback((200, self._response_headers, cjson.encode({"results": self._results, "last_seq": cjson.encode(self._lastseq)})))
 
 # vi: noexpandtab ts=2 sts=2 sw=2

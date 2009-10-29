@@ -410,11 +410,8 @@ class HTTPProxy(resource.Resource):
 		# /database/_all_docs?stuff => database, _all_docs?stuff
 		database, rest = request.uri[1:].split('/', 1)
 		deferred = defer.Deferred()
-		deferred.addCallback(lambda s:
-									(request.write(s+"\n"), request.finish()))
-
-		deferred.addErrback(lambda s:
-								   (request.write(str(s)), request.finish()))
+		deferred.addCallback(make_success_callback(request))
+		deferred.addErrback(make_errback(request))
 
 		# this is exactly like a view with no reduce
 		shards = self.conf_data.shards(database)

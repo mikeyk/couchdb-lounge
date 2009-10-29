@@ -201,7 +201,7 @@ class DbGetter(DbFetcher):
 	"""Get info about every shard of a database and accumulate the results."""
 	def __init__(self, config, nodes, deferred, name, client_queue):
 		DbFetcher.__init__(self, config, nodes, deferred, 'GET', client_queue)
-		self._acc = {"db_name": name, "doc_count": 0, "doc_del_count": 0, "update_seq": 0, "purge_seq": 0, "compact_running": False, "disk_size": 0,
+		self._acc = {"db_name": name, "doc_count": 0, "doc_del_count": 0, "update_seq": len(nodes)*[0], "purge_seq": 0, "compact_running": False, "disk_size": 0,
 			"compact_running_shards": [], # if compact is running, which shards?
 			"update_seq_shards": {},      # aggregate update_seq isn't really relevant
 			"purge_seq_shards": {},       # ditto purge_seq
@@ -217,12 +217,11 @@ class DbGetter(DbFetcher):
 		if res.get("compact_running", False):
 			self._acc["compact_running_shards"].append(res["db_name"])
 
-		# these will be kinda meaningless...
 		if "update_seq" in res:
-			# so we aggregate per-shard update/purge sequences
-			self._acc["update_seq_shards"][res["db_name"]] = res["update_seq"]
-			if res["update_seq"] > self._acc["update_seq"]:
-				self._acc["update_seq"] = res["update_seq"]
+			shard_idx = self._config.get_index_from_shard(res["db_name"])
+			self._acc["update_seq"][shard_idx] = res["update_seq"]
+	
+		# this will be kinda meaningless...
 		if "purge_seq" in res:
 			self._acc["purge_seq_shards"][res["db_name"]] = res["purge_seq"]
 			if res["purge_seq"] > self._acc["purge_seq"]:
@@ -234,6 +233,7 @@ class DbGetter(DbFetcher):
 				kwargs['request'].responseHeaders = Headers(kwargs['factory'].response_headers)
 				# remove length, send chunked response
 				kwargs['request'].responseHeaders.removeHeader('content-length')
+			self._acc["update_seq"] = cjson.encode(self._acc["update_seq"])
 			self._deferred.callback(self._acc)
 
 class ReduceFunctionFetcher(HttpFetcher):
