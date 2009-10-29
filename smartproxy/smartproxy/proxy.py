@@ -36,7 +36,7 @@ from twisted.python.failure import DefaultException
 
 from fetcher import HttpFetcher, MapResultFetcher, DbFetcher, DbGetter, ReduceFunctionFetcher, AllDbFetcher, ProxyFetcher, ChangesFetcher, UuidFetcher
 
-from reducer import ReduceQueue, ReducerProcessProtocol, Reducer, AllDocsReducer, ChangesReducer
+from reducer import ReduceQueue, ReducerProcessProtocol, Reducer, AllDocsReducer, ChangesReducer, ChangesMerger
 
 import streaming
 
@@ -366,27 +366,6 @@ class HTTPProxy(resource.Resource):
 			since = cjson.decode(args['since'])
 		else:
 			since = len(shards)*[0]
-
-		class ChangesMerger:
-			implements(IConsumer)
-
-			def __init__(self, request, since):
-				self.request = request
-				self.seq = copy.copy(since)
-
-			def registerProducer(self, producer, streaming):
-				pass
-
-			def unregisterProducer(self):
-				pass
-
-			def write(self, data):
-				shard_idx, line = data
-				row = cjson.decode(line)
-				self.seq[shard_idx] = row['seq']
-				row['seq'] = cjson.encode(self.seq)
-
-				self.request.write(cjson.encode(row) + "\n")
 
 		consumer = ChangesMerger(request, since)
 

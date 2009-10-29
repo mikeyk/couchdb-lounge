@@ -26,9 +26,12 @@ import urllib
 
 import cjson
 
+from zope.interface import implements
+
 from twisted.python import log
 from twisted.internet import defer
 from twisted.internet import protocol, reactor, defer, process, task, threads
+from twisted.internet.interfaces import IConsumer
 from twisted.protocols import basic
 from twisted.web import server, resource, client
 from twisted.python.failure import DefaultException
@@ -391,5 +394,26 @@ class ChangesReducer(Reducer):
 
 		if self.num_entries_remaining == 0:
 			self.reduce_deferred.callback((200, self._response_headers, cjson.encode({"results": self._results, "last_seq": cjson.encode(self._lastseq)})))
+
+class ChangesMerger:
+	implements(IConsumer)
+
+	def __init__(self, request, since):
+		self.request = request
+		self.seq = copy.copy(since)
+
+	def registerProducer(self, producer, streaming):
+		pass
+
+	def unregisterProducer(self):
+		pass
+
+	def write(self, data):
+		shard_idx, line = data
+		row = cjson.decode(line)
+		self.seq[shard_idx] = row['seq']
+		row['seq'] = cjson.encode(self.seq)
+
+		self.request.write(cjson.encode(row) + "\n")
 
 # vi: noexpandtab ts=2 sts=2 sw=2
