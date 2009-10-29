@@ -401,12 +401,16 @@ class ChangesMerger:
 	def __init__(self, request, since):
 		self.request = request
 		self.seq = copy.copy(since)
+		self.producers = 0
 
 	def registerProducer(self, producer, streaming):
-		pass
+		self.producers += 1
 
 	def unregisterProducer(self):
-		pass
+		self.producers -= 1
+		if self.producers < 1:
+			self.request.write(cjson.encode({"last_seq": cjson.encode(self.seq)}) + "\n")
+			self.request.finish()
 
 	def write(self, data):
 		shard_idx, line = data

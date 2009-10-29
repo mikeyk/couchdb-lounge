@@ -369,7 +369,7 @@ class HTTPProxy(resource.Resource):
 
 		consumer = ChangesMerger(request, since)
 
-		shard_args = {'feed': 'continuous'}
+		shard_args = copy.copy(args)
 		urls = []
 		for i,shard in enumerate(shards):
 			shard_args['since'] = since[i]
