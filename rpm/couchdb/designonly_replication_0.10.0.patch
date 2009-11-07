@@ -1,6 +1,6 @@
-diff -Nru apache-couchdb-0.10.0/src/couchdb/couch_rep.erl apache-couchdb-0.10.0.work/src/couchdb/couch_rep.erl
---- apache-couchdb-0.10.0/src/couchdb/couch_rep.erl	2009-09-25 17:51:12.000000000 -0700
-+++ apache-couchdb-0.10.0.work/src/couchdb/couch_rep.erl	2009-10-17 13:09:53.000000000 -0700
+diff -Nru src/couchdb/couch_rep.erl src/couchdb/couch_rep.erl
+--- src/couchdb/couch_rep.erl	2009-09-25 17:51:12.000000000 -0700
++++ src/couchdb/couch_rep.erl	2009-10-17 13:09:53.000000000 -0700
 @@ -28,6 +28,7 @@
      source,
      target,
@@ -40,8 +40,8 @@ diff -Nru apache-couchdb-0.10.0/src/couchdb/couch_rep.erl apache-couchdb-0.10.0.
  
  maybe_add_trailing_slash(Url) ->
      re:replace(Url, "[^/]$", "&/", [{return, list}]).
---- apache-couchdb-0.10.0/src/couchdb/couch_rep_reader.erl	2009-10-05 22:47:27.000000000 -0700
-+++ apache-couchdb-0.10.0.work/src/couchdb/couch_rep_reader.erl	2009-10-17 13:37:00.000000000 -0700
+--- src/couchdb/couch_rep_reader.erl	2009-10-05 22:47:27.000000000 -0700
++++ src/couchdb/couch_rep_reader.erl	2009-10-17 13:37:00.000000000 -0700
 @@ -49,7 +49,7 @@
  next(Pid) ->
      gen_server:call(Pid, next_docs, infinity).
