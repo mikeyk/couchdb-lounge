@@ -1,6 +1,18 @@
 lounge python module
 nice interface to lounge configuration
-#1.1.4 01/09/2009 r17576
+#1.3.1 10/25/2009 r28134
+Added more validations, add/remove attachments
+#1.3.0 10/06/2009 r27062
+Attachments, doc validations
+#1.2.3 09/18/2009 r27062
+Add __str__ method to exception class
+#1.2.2 07/13/2009 r21901
+Add a comment about a confusing line of code
+#1.2.1 04/09/2009 r21101
+Handle stale=ok correctly
+#1.2.0 04/06/2009 r20932
+Update client for couchdb 0.9 compatibility
+#1.1.4 01/09/2009 r17577
 Handle non-ascii screen names
 #1.1.3 01/09/2009 r17575
 URL-encode spaces; handle weird nginx non-return codes

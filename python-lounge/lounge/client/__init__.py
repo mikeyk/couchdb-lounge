@@ -52,8 +52,11 @@ class LoungeError(Exception):
 		self.key = key
 		self.code = code
 
-	def __repr__(self):
+	def __str__(self):
 		return "Resource %s returned %d" % (self.key, self.code)
+		
+	def __repr__(self):
+		return "%s(%d, %s)" % (self.__class__.__name__, self.code, self.key)
 
 	@classmethod
 	def make(cls, code, key=''):
@@ -74,6 +77,10 @@ class AlreadyExists(LoungeError):
 
 class RevisionConflict(LoungeError):
 	"""Exception for updating a record with an out-of-date revision."""
+	pass
+
+class ValidationFailed(Exception):
+	"""Exception for when an object fails validation."""
 	pass
 
 class Resource(object):
@@ -128,6 +135,26 @@ class Resource(object):
 		"""
 		return strkey
 	
+	def _encode(self, payload):
+		"""Encode an object for writing.
+
+		For typical Couch stuff, we encode as JSON.  Override as needed.
+		
+		Returns content-type, body pair.
+		"""
+		return "application/json", cjson.encode(payload)
+	
+	def _decode(self, payload, headers):
+		"""Decode a response.
+
+		For typical Couch stuff, we parse as JSON.  Override as needed.
+		"""
+		try:
+			rv = cjson.decode(payload)
+		except cjson.DecodeError:
+			rv = payload
+		return rv
+	
 	### REST helpers
 	def _request(self, method, url, args=None, body=None):
 		"""Make a REST request."""
@@ -150,8 +177,8 @@ class Resource(object):
 
 		# POST/PUT body
 		if body is not None:
-			body = cjson.encode(body)
-			curl.setopt(pycurl.HTTPHEADER, ['Content-Type: application/json'])
+			content_type, body = self._encode(body)
+			curl.setopt(pycurl.HTTPHEADER, ['Content-Type: ' + content_type])
 			if method=='POST':
 				# CURL handles POST differently.  We must set POSTFIELDS
 				curl.setopt(pycurl.POSTFIELDS, body)
@@ -166,6 +193,17 @@ class Resource(object):
 			curl.setopt(pycurl.POST, 1)
 		elif method=='DELETE':
 			curl.setopt(pycurl.CUSTOMREQUEST, 'DELETE')
+
+		headers = {}
+		def add_header(ln):
+			stripped = ln.strip()
+			if stripped and stripped.find(': ') >= 0:
+				key,val = stripped.split(": ")
+				# From http://bugs.python.org/issue2275
+				key = '-'.join((ck.capitalize() for ck in key.split('-')))
+				headers[key] = val
+
+		curl.setopt(pycurl.HEADERFUNCTION, add_header)
 
 		curl.perform()
 		rv = outbuf.getvalue()
@@ -196,8 +234,15 @@ class Resource(object):
 	def delete(self, args=None):
 		return self._request('DELETE', self.url(), args=args)
 
+	@classmethod
+	def generate_uuid(cls):
+		"""Implement in subclasses where it's OK to have a UUID as a key"""
+		raise NotImplementedError
+
 	@classmethod	
 	def new(cls, *key, **attrs):
+		if not key:
+			key = (cls.generate_uuid(),)
 		"""Make a new record."""
 		inst = cls()
 		inst._key = cls.make_key(*key)
@@ -299,7 +344,7 @@ class Resource(object):
 		in the constructor.
 		"""
 		# override default setattr only after construction
-		if ("_rec" in self.__dict__) and (not attr in self.__dict__):
+		if ("_rec" in self.__dict__) and (not attr in self.__dict__) and attr != "_rec":
 			self._rec[attr] = v
 		else: 
 			return object.__setattr__(self, attr, v)
@@ -329,7 +374,7 @@ class Document(Resource):
 	"""
 
 	# set this to the name of your database
-	db_name = "override_me_please"
+	db_name = None
 
 	# use _db_name internally-- it will add the test prefix if needed.
 	# external applications can set db_name
@@ -338,12 +383,84 @@ class Document(Resource):
 	_db_name = property(get_db_name)
 
 	def __init__(self):
+		# do it here, before ._rec is created, so this does not
+		# become an attribute passed on to the database
+		self._errors = {}
 		Resource.__init__(self)
-		if self.db_name=="override_me_please":
-			raise NotImplementedError("Database not provided")
+
+	@classmethod
+	def generate_uuid(cls):
+		url = db_connectinfo + "_uuids?count=1";
+		uuids = Resource.find(url).uuids
+		return uuids[0]
+
+	def save(self):
+		 is_valid = self.validate()
+		 if not is_valid:
+			 raise ValidationFailed("Validation failed for object of type %s: %s.  Errors: %s" % (self.__class__, str(self._rec), str(self._errors)))
+		 super(Document, self).save()
 
 	def url(self):
+		# It should be OK to create a Document instance with no db-- the only
+		# issue will come when you try to save it
+		if self.db_name is None:
+			raise NotImplementedError("Database not provided")
 		return db_connectinfo + self._db_name + '/' + urllib.quote(self._key.encode('utf8', 'xmlcharrefreplace'), safe=':/,~@!')
+	
+	def set_error(self, attr, msg):
+		"""Add an error message to the object's errors dict.
+
+		Call this in your validation functions to explain why validation failed.
+		"""
+		if attr not in self._errors:
+			self._errors[attr] = []
+		self._errors[attr].append(msg)
+
+	def errors_for(self, attr):
+		if attr in self._errors:
+			return self._errors[attr]
+		return []
+
+	def validate(self):
+		"""Used to validate our document before we save it.  Returns True if
+		the document is valid, False if it isn't.
+
+		Implement methods starting with validate_ to add your validations.
+		"""
+		status = True
+		self._errors = {}
+		# find all method named validate_
+		for attr in dir(self):
+			if attr.startswith('validate_'):
+				f = getattr(self, attr)
+				# make sure it's actually callable
+				if hasattr(f, '__call__'):
+					status = f() and status
+		return status
+
+	def get_attachment(self, name):
+		"""
+		Retrieves an attachment from this Document, raising NotFound if
+		it's not found.
+		"""
+		return Attachment.find(self.url() + "/" + urllib.quote_plus(name))
+	
+	def new_attachment(self, name):
+		"""Set up for saving an attachment to this document.
+
+		When creating or updating an attachment, CouchDB requires the MVCC token
+		from the owning document.  This helper sets that token and generates the
+		resource URI.
+		"""
+		return Attachment.new(self.url() + "/" + urllib.quote_plus(name), _rev=self._rev)
+	
+	def remove_attachment(self, name):
+		"""
+		Remove the attachment from the attachments dict.  Throws a
+		KeyError if the attachment isn't found in the _attachments
+		dict.
+		"""
+		self._attachments.pop(name)
 
 class DesignDoc(Document):
 	def __init__(self):
@@ -390,6 +507,8 @@ class View(Resource):
 				if k!='stale':
 					# json-encode the args
 					args[k] = cjson.encode(v)
+		#this sets the post-body to the arguments of the view (so it's actually not a no-op)
+		#this behaviour is used in TempView below
 		inst._rec = kwargs
 		inst._rec = inst.get_results(args)
 		inst._rec['rows'] = [(row['key'], row['value']) for row in inst._rec['rows']]
@@ -413,3 +532,33 @@ class AllDocView(View):
 	@classmethod
 	def make_key(cls):
 		return '_all_docs'
+
+class Attachment(Resource):
+	"""A Resource with special encoding.
+
+	needs:
+	`content_type` -- mime type to use when storing the attachment
+	and either of:
+	`data` -- raw data to store
+	`stream` -- file-type object with data
+
+	When retrieving an attachment, you'll always get a stream.
+	"""
+	def _encode(self, payload):
+		content_type = payload['content_type']
+		if 'data' in payload:
+			data = payload['data']
+		else:
+			data = payload['stream'].read()
+		return content_type, data
+	
+	def _decode(self, data, headers):
+		content_type = headers.get('Content-Type', 'application/octet-stream')
+		return {
+			"content_type": content_type,
+			"stream": StringIO.StringIO(data)
+		}
+
+	def put(self):
+		result = self._request('PUT', self.url(), args={"rev": self._rec["_rev"]}, body=self._rec)
+		return result
