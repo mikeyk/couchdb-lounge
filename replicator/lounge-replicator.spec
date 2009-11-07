@@ -2,7 +2,7 @@ Summary: CouchDB replicator for the lounge
 Name: lounge-replicator
 Version: 1.1.1
 Release: 1
-URL: http://www.lounge.com/
+URL: http://tilgovi.github.com/couchdb-lounge
 License: GPL
 Group: Applications/Databases
 Requires: couchdb
