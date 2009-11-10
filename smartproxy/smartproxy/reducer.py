@@ -340,7 +340,11 @@ class Reducer:
 					for k in self.headersrecvd:
 						# content-length header will be a lie
 						if k.lower()=='content-length':
+							topop.append(k)
+					
+					for k in topop:
 							self.headersrecvd.pop(k)
+
 					self.reduce_deferred.callback((self.coderecvd, self.headersrecvd, body))
 				else:
 					self.reduce_deferred.callback(body)

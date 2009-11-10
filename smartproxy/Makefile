@@ -1,5 +1,5 @@
 # build number, increment with each new build, reset on new version
-RELEASE = "0"
+RELEASE = "1"
 
 
 PY_VERSION := $(shell python -V 2>&1)
