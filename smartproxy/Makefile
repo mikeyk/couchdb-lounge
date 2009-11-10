@@ -22,7 +22,7 @@ install:
 
 rpm:
 	echo $(PY_VERSION)
-	python setup.py bdist_rpm --release="$(RELEASE)" --requires "Twisted, python-cjson, zope.interface, python-lounge, python-simplejson" $(PY_EXTRA)
+	python setup.py bdist_rpm --release="$(RELEASE)" --requires "Twisted, python-cjson, zope.interface, python-lounge, python-simplejson" --config-dirs=/etc/lounge $(PY_EXTRA)
 
 clean:
 	rm -f MANIFEST
