@@ -20,12 +20,13 @@ default:
 install:
 	python setup.py install $(root)
 
-#default:
-#	echo $(PY_VERSION)
-#	python setup.py bdist_rpm --release="$(RELEASE)" --requires "Twisted, python-cjson, zope.interface, python-lounge, python-simplejson" $(PY_EXTRA)
-#clean:
-#	rm -f MANIFEST
-#	rm -rf dist build
-#	find . -name "*.pyc" -exec rm -f {} \;
-#	find . -name "*~" -exec rm -f {} \;
-#	find . -name "#*#" -exec rm -f {} \;
+rpm:
+	echo $(PY_VERSION)
+	python setup.py bdist_rpm --release="$(RELEASE)" --requires "Twisted, python-cjson, zope.interface, python-lounge, python-simplejson" $(PY_EXTRA)
+
+clean:
+	rm -f MANIFEST
+	rm -rf dist build
+	find . -name "*.pyc" -exec rm -f {} \;
+	find . -name "*~" -exec rm -f {} \;
+	find . -name "#*#" -exec rm -f {} \;

@@ -1,5 +1,7 @@
 lounge python module
 nice interface to lounge configuration
+#1.3.2 11/10/2009
+Fix setup.py errors
 #1.3.1 10/25/2009 r28134
 Added more validations, add/remove attachments
 #1.3.0 10/06/2009 r27062

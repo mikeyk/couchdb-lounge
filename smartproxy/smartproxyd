@@ -14,7 +14,7 @@ TWISTD_BINARY=`which twistd`
 
 TWISTED_NAME='smartproxy'
 TWISTED_FILE='/etc/lounge/smartproxy.tac'
-TWISTED_PID_DIR='/var/run/pid'
+TWISTED_PID_DIR='/var/run'
 TWISTED_PID="$TWISTED_PID_DIR/smartproxyd.pid"
 TWISTED_LOG='/var/log/lounge/smartproxyd.log'
 
@@ -27,11 +27,11 @@ then
 	. /etc/rc.d/init.d/functions
 	START="daemon"
 	STOP="killproc -p $TWISTED_PID -d 10 twistd"
-	START="$START \"$TWISTD_BINARY -r epoll -y $TWISTED_FILE --pidfile=$TWISTED_PID --logfile=$TWISTED_LOG -u $USER -g $GROUP\""
+	START="$START $TWISTD_BINARY -r epoll -y $TWISTED_FILE --pidfile=$TWISTED_PID --logfile=$TWISTED_LOG -u $USER -g $GROUP"
 else
 	. /lib/lsb/init-functions
-    START="start-stop-daemon --start --pidfile=$TWISTED_PID --exec"
-    STOP="start-stop-daemon --stop --pidfile=$TWISTED_PID -n twistd"
+	START="start-stop-daemon --start --pidfile=$TWISTED_PID --exec"
+	STOP="start-stop-daemon --stop --pidfile=$TWISTED_PID -n twistd"
 	START="$START $TWISTD_BINARY -- -r epoll -y $TWISTED_FILE --pidfile=$TWISTED_PID --logfile=$TWISTED_LOG -u $USER -g $GROUP"
 fi
 

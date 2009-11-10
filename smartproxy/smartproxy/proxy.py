@@ -80,9 +80,9 @@ def should_regenerate(now, cached_at, cachetime):
 	return random.random() < p
 
 class ClientQueue:
-	def __init__(self, pool_size):
+	def __init__(self, prefs):
 		self.queue = []
-		self.pool_size = pool_size
+		self.pool_size = prefs.get_pref("/client_pool_size")
 		self.count = 0
 	
 	def enqueue(self, url, good_cb, bad_cb):
@@ -160,8 +160,8 @@ class HTTPProxy(resource.Resource):
 		"""
 		self.prefs = prefs
 
-		self.reduce_queue = ReduceQueue(self.prefs.get_pref("/reduce_pool_size"))
-		self.client_queue = ClientQueue(self.prefs.get_pref("/client_pool_size"))
+		self.reduce_queue = ReduceQueue(self.prefs)
+		self.client_queue = ClientQueue(self.prefs)
 
 		self.__last_load_time = 0
 		self.__loadConfig()
@@ -229,7 +229,7 @@ class HTTPProxy(resource.Resource):
 		uri = request.uri[1:]
 		db, req = uri.split('/', 1)
 		shards = self.conf_data.shards(db)
-		reducer = Reducer(reduce_fn, len(shards), {}, deferred, self.reduce_queue)
+		reducer = Reducer(reduce_fn, len(shards), {}, deferred, self.reduce_queue, self.prefs)
 
 		failed = False
 		for shard in shards:
@@ -319,6 +319,10 @@ class HTTPProxy(resource.Resource):
 		deferred = defer.Deferred()
 		# if the request is cacheable, save it
 		def send_output(s):
+			if type(s) is tuple:
+				code, headers, s = s
+				request.headers.update(headers)
+
 			if request.cache is not None:
 				request.cache[request.uri] = (time.time(), s+"\n")
 			if not request.cache_only:
@@ -346,7 +350,7 @@ class HTTPProxy(resource.Resource):
 			if hasattr(s.value, 'response'):
 				response = s.value.response
 			else:
-				response = '{}'
+				raise Exception(str(s))
 			request.setResponseCode(status)
 			request.write(response+"\n") 
 			request.finish()

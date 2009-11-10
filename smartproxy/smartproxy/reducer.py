@@ -176,13 +176,12 @@ def merge(r1, r2, compare=json_cmp, unique=False, descending=False):
 	return r1
 
 class ReduceQueue:
-	def __init__(self, pool_size):
+	def __init__(self, prefs):
 		self.queue = []
 		self.pool = []
 		self.started = False
-		self.pool_size = pool_size
-		#self.process = " /usr/lib64/couchdb/bin/couchjs /usr/share/couchdb/server/main.js".split()
-		self.process = " /usr/local/bin/couchjs /usr/local/share/couchdb/server/main.js".split()
+		self.pool_size = prefs.get_pref("/reduce_pool_size")
+		self.process = prefs.get_pref("/couchjs_command").split()
 	
 	def start_reducers(self):
 		# we can't do this until after the reactor starts.
@@ -212,13 +211,13 @@ class ReduceQueue:
 			reducer = self.pool.pop(0)
 
 			def reduce_finished(response):
-				log.debug("ReduceQueue: success, queue size %d, pool size %d" % (len(self.queue), len(self.pool)))
 				self.return_to_pool(reducer)
+				log.debug("ReduceQueue: success, queue size %d, pool size %d" % (len(self.queue), len(self.pool)))
 				cb(response)
 
 			def reduce_failed(*args, **kwargs):
-				log.debug("ReduceQueue: failure, queue size %d, pool size %d" % (len(self.queue), len(self.pool)))
 				self.return_to_pool(reducer)
+				log.debug("ReduceQueue: failure, queue size %d, pool size %d" % (len(self.queue), len(self.pool)))
 
 			reducer.feed(keys, lines, reduce_finished, reduce_failed)
 		else:
@@ -261,7 +260,6 @@ class Reducer:
 	def __init__(self, reduce_func, num_entries, args, deferred, reduce_queue):
 		self.reduce_func = reduce_func
 		self.num_entries_remaining = num_entries
-		self.process = "/usr/bin/couchjs /usr/share/couchdb/server/main.js".split()
 		self.queue = []
 		self.reduce_deferred = deferred
 		self.reduces_out = 0
@@ -338,14 +336,11 @@ class Reducer:
 					self.queue[0]['rows'] = self.queue[0]['rows'][0:self.count]
 				body = cjson.encode(self.queue[0])
 				if self.coderecvd is not None and self.headersrecvd is not None:
-					# content-length header will be a lie
 					topop = []
 					for k in self.headersrecvd:
+						# content-length header will be a lie
 						if k.lower()=='content-length':
-							topop.append(k)
-					while topop:
-						self.headersrecvd.pop(topop.pop())
-
+							self.headersrecvd.pop(k)
 					self.reduce_deferred.callback((self.coderecvd, self.headersrecvd, body))
 				else:
 					self.reduce_deferred.callback(body)

@@ -1,4 +1,6 @@
 Meebo Smart Proxy for CouchDB
+#1.1.15 11/10/2009
+- Fix view errors
 #1.1.14 03/11/2009
 - cache now persists to disk on exit
 #1.1.13 02/18/2009

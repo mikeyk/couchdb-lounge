@@ -4,7 +4,10 @@ from distutils.core import setup
 
 py_packages = ['lounge', 'lounge.client']
 
-setup( version = curr_version,
+description = 'lounge python module'
+long_description = 'nice interface to lounge configuration'
+
+setup( version = '1.3.2',
 	   description = description,
 	   long_description = long_description,
 	   name = 'python-lounge',

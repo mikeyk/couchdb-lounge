@@ -31,7 +31,6 @@ from twisted.internet import defer
 from twisted.internet import protocol, reactor, defer, process, task, threads
 from twisted.protocols import basic
 from twisted.web import server, resource, client
-from twisted.web.http_headers import Headers
 from twisted.python.failure import DefaultException
 
 from reducer import Reducer
@@ -230,9 +229,9 @@ class DbGetter(DbFetcher):
 		self._remaining -= 1
 		if self._remaining < 1:
 			if 'request' in kwargs and 'factory' in kwargs:
-				kwargs['request'].responseHeaders = Headers(kwargs['factory'].response_headers)
+				kwargs['request'].headers.update(kwargs['factory'].response_headers)
 				# remove length, send chunked response
-				kwargs['request'].responseHeaders.removeHeader('content-length')
+				kwargs['request'].headers.pop('content-length', None)
 			self._acc["update_seq"] = cjson.encode(self._acc["update_seq"])
 			self._deferred.callback(self._acc)
 
@@ -281,7 +280,7 @@ class ReduceFunctionFetcher(HttpFetcher):
 			shard_deferred.addErrback(handle_error)
 
 			nodes = self._config.nodes(shard)
-			if "stale" not in self._uri:
+			if "stale" in self._uri:
 				if "?" not in self._uri:
 					self._uri += "?stale=ok"
 				else:
@@ -301,9 +300,9 @@ class AllDbFetcher(HttpFetcher):
 		shards = cjson.decode(page)
 		dbs = dict([(self._config.get_db_from_shard(shard), 1) for shard in shards])
 		if 'factory' in kwargs and 'request' in kwargs:
-			kwargs['request'].responseHeaders = Headers(kwargs['factory'].response_headers)
+			kwargs['request'].headers.update(kwargs['factory'].response_headers)
 			# remove length, send chunked response
-			kwargs['request'].responseHeaders.removeHeader('content-length')
+			kwargs['request'].headers.pop('content-length', None)
 		self._deferred.callback(dbs.keys())
 
 class ProxyFetcher(HttpFetcher):
