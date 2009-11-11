@@ -236,13 +236,12 @@ class DbGetter(DbFetcher):
 			self._deferred.callback(self._acc)
 
 class ReduceFunctionFetcher(HttpFetcher):
-	def __init__(self, config, nodes, database, uri, view, args, deferred, client_queue, reduce_queue, options={}):
+	def __init__(self, config, nodes, database, uri, view, deferred, client_queue, reduce_queue, options={}):
 		HttpFetcher.__init__(self, "reduce_func", nodes, deferred, client_queue)
 		self._config = config
 		self._view = view
 		self._database = database
 		self._uri = uri
-		self._args = args
 		self._reduce_queue = reduce_queue
 		self._client_queue = client_queue
 		self._failed = False
@@ -250,11 +249,14 @@ class ReduceFunctionFetcher(HttpFetcher):
 		self._do_reduce = (options.get("reduce","true")=="true")
 	
 	def fetch(self, request=None):
+		self._request = request
+		self._args = self._request and self._request.args or {}
+
 		if self._do_reduce:
-			return HttpFetcher.fetch(self, request)
+			return HttpFetcher.fetch(self, self._request)
 		# if reduce=false, then we don't have to pull the reduce func out
 		# of the design doc.  Just go straight to the view
-		return self._onsuccess("{}", request=request)
+		return self._onsuccess("{}", request=self._request)
 
 	def _onsuccess(self, page, *args, **kwargs):
 		design_doc = cjson.decode(page)
@@ -287,7 +289,7 @@ class ReduceFunctionFetcher(HttpFetcher):
 					self._uri += "&stale=ok"
 			urls = ["/".join([node, self._uri]) for node in nodes]
 			fetcher = MapResultFetcher(shard, urls, reducer, shard_deferred, self._client_queue)
-			fetcher.fetch(request=kwargs.get('request'))
+			fetcher.fetch(self._request)
 
 class AllDbFetcher(HttpFetcher):
 	def __init__(self, config, nodes, deferred, client_queue):
@@ -307,9 +309,8 @@ class AllDbFetcher(HttpFetcher):
 
 class ProxyFetcher(HttpFetcher):
 	"""Pass along a GET, POST, or PUT."""
-	def __init__(self, name, nodes, body, deferred, client_queue):
+	def __init__(self, name, nodes, deferred, client_queue):
 		HttpFetcher.__init__(self, name, nodes, deferred, client_queue)
-		self._body = body
 
 	def fetch(self, request=None):
 		url = self._remaining_nodes[0]
@@ -321,7 +322,7 @@ class ProxyFetcher(HttpFetcher):
 
 		self._remaining_nodes = self._remaining_nodes[1:]
 		self._remaining_nodes = []
-		self.factory = getPageWithHeaders(url, method=self.method, postdata=body, headers=headers)
+		self.factory = getPageWithHeaders(url, method=method, postdata=body, headers=headers)
 		self.factory.deferred.addCallback(self._onsuccess)
 		self.factory.deferred.addErrback(self._onerror)
 

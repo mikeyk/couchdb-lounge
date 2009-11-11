@@ -255,7 +255,6 @@ class HTTPProxy(resource.Resource):
 
 	def render_view(self, request):
 		"""Farm out a view query to all nodes and combine the results."""
-		request.setHeader('Content-Type', 'application/json')
 		#database, _view, document, view = parse_uri(request.uri)
 		uri = request.uri[1:]
 		parts = uri.split('/')
@@ -297,7 +296,6 @@ class HTTPProxy(resource.Resource):
 					# if so see if it is yet to expire
 					now = time.time()
 					log.debug("Using cached copy of " + request.uri)
-					request.setHeader('Content-Type', 'application/json')
 					cached_result = response
 					# if the cache has expired and we don't already have a request for this uri running,
 					# we set the cache_only flag, otherwise we just return what's in the cache.
@@ -356,7 +354,7 @@ class HTTPProxy(resource.Resource):
 			request.finish()
 		deferred.addErrback(handle_error)
 
-		r = ReduceFunctionFetcher(self.conf_data, primary_urls, database, uri, view, request.args, deferred, self.client_queue, self.reduce_queue, options)
+		r = ReduceFunctionFetcher(self.conf_data, primary_urls, database, uri, view, deferred, self.client_queue, self.reduce_queue, options)
 		r.fetch(request)
 		# we have a cached copy; we're just processing the request to replace it
 		if cached_result:
