@@ -319,7 +319,8 @@ class HTTPProxy(resource.Resource):
 		def send_output(s):
 			if type(s) is tuple:
 				code, headers, s = s
-				request.headers.update(headers)
+				for k in headers:
+					request.setHeader(k, headers[k][-1])
 
 			if request.cache is not None:
 				request.cache[request.uri] = (time.time(), s+"\n")

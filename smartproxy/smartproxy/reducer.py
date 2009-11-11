@@ -341,6 +341,9 @@ class Reducer:
 						# content-length header will be a lie
 						if k.lower()=='content-length':
 							topop.append(k)
+						# etags should be stripped
+						if k.lower()=='etag':
+							topop.append(k)
 					
 					for k in topop:
 							self.headersrecvd.pop(k)
