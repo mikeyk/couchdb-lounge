@@ -131,7 +131,10 @@ class MapResultFetcher(HttpFetcher):
 		self._reducer = reducer
 
 	def _onsuccess(self, page):
-		self._reducer.process_map(page, int(self.factory.status), self.factory.response_headers)
+		self._reducer.process_map(page, int(self.factory.status), self.factory.response_headers, self._name)
+
+	def _onerror(self, data):
+		self._deferred.errback(data)
 
 	def fetch(self, request=None):
 		url = self._remaining_nodes[0]
@@ -186,7 +189,7 @@ class ChangesFetcher(HttpFetcher):
 		self._shard = shard
 
 	def _onsuccess(self, page, *args, **kwargs):
-		self._reducer.process_map(self._shard, page, self.factory.response_headers)
+		self._reducer.process_map(self._shard, page, self.factory.response_headers, self._name)
 
 	def fetch(self, request=None):
 		url = self._remaining_nodes[0]
@@ -266,8 +269,16 @@ class ReduceFunctionFetcher(HttpFetcher):
 		shards = self._config.shards(self._database)
 		reducer = Reducer(reduce_func, len(shards), self._args, self._deferred, self._reduce_queue)
 
-		# make sure we don't call this deferred twice
+		# TODO: only look for stale as a query param
+		if "stale" in self._uri:
+			if "?" not in self._uri:
+				self._uri += "?stale=ok"
+			else:
+				self._uri += "&stale=ok"
+		
+		# make sure we don't call this deferred twice (using self._failed)
 		def handle_success(data):
+			log.debug("ReduceFunctionFetcher: handle_succes")
 			if not self._failed:
 				self._deferred.callback(data)
 
@@ -282,11 +293,6 @@ class ReduceFunctionFetcher(HttpFetcher):
 			shard_deferred.addErrback(handle_error)
 
 			nodes = self._config.nodes(shard)
-			if "stale" in self._uri:
-				if "?" not in self._uri:
-					self._uri += "?stale=ok"
-				else:
-					self._uri += "&stale=ok"
 			urls = ["/".join([node, self._uri]) for node in nodes]
 			fetcher = MapResultFetcher(shard, urls, reducer, shard_deferred, self._client_queue)
 			fetcher.fetch(self._request)

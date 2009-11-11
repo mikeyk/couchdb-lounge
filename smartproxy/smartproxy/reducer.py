@@ -16,6 +16,7 @@ import atexit
 import copy
 import cPickle
 import lounge
+import md5
 import os
 import PyICU
 import random
@@ -272,11 +273,16 @@ class Reducer:
 
 		self.descending = args.get('descending', 'false')
 		self.descending = (self.descending=='true') and True or False
+		self.etags = {}
 
-	def process_map(self, data, code=None, headers=None):
+	def process_map(self, data, code=None, headers=None, shard=None):
 		if code is not None:
 			self.coderecvd = code
 		if headers is not None:
+			if shard is not None:
+				etag = filter(lambda k: k.lower() == 'etag', headers)
+				self.etags[shard] = headers[etag[0]][-1]
+				log.debug("process_map: etag for shard %s is %s" % (shard, self.etags[shard]))
 			self.headersrecvd = headers
 
 		#TODO: check to make sure this doesn't go less than 0
@@ -336,19 +342,23 @@ class Reducer:
 					self.queue[0]['rows'] = self.queue[0]['rows'][0:self.count]
 				body = cjson.encode(self.queue[0])
 				if self.coderecvd is not None and self.headersrecvd is not None:
-					topop = []
-					for k in self.headersrecvd:
-						# content-length header will be a lie
-						if k.lower()=='content-length':
-							topop.append(k)
-						# etags should be stripped
-						if k.lower()=='etag':
-							topop.append(k)
-					
-					for k in topop:
-							self.headersrecvd.pop(k)
+					# filter headers that should not be reverse proxied
+					strip_headers = ['content-length', 'etag']
+					strip_filter = lambda k: k.lower() not in strip_headers
+					keys = filter(strip_filter, self.headersrecvd)
+					headers = dict([(k,self.headersrecvd[k]) for k in keys])
 
-					self.reduce_deferred.callback((self.coderecvd, self.headersrecvd, body))
+					# calculate a deterministic etag
+					nodes = self.etags.keys()
+					nodes.sort() # sum in deterministic order
+					md5etag = md5.md5()
+					for node in nodes:
+						md5etag.update(self.etags[node])
+					if len(nodes) > 0:
+						headers['etag'] = [md5etag.hexdigest()]
+					log.debug("Reducer: response headers = %s" % str(headers))
+					
+					self.reduce_deferred.callback((self.coderecvd, headers, body))
 				else:
 					self.reduce_deferred.callback(body)
 			return
