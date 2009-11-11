@@ -34,7 +34,7 @@ from twisted.protocols import basic
 from twisted.web import server, resource, client
 from twisted.python.failure import DefaultException
 
-from fetcher import HttpFetcher, MapResultFetcher, DbFetcher, DbGetter, ReduceFunctionFetcher, AllDbFetcher, ProxyFetcher, ChangesFetcher, UuidFetcher
+from fetcher import HttpFetcher, MapResultFetcher, DbFetcher, DbGetter, ReduceFunctionFetcher, AllDbFetcher, ProxyFetcher, ChangesFetcher, UuidFetcher, getPageWithHeaders
 
 from reducer import ReduceQueue, ReducerProcessProtocol, Reducer, AllDocsReducer, ChangesReducer, ChangesMerger
 
@@ -85,14 +85,14 @@ class ClientQueue:
 		self.pool_size = prefs.get_pref("/client_pool_size")
 		self.count = 0
 	
-	def enqueue(self, url, good_cb, bad_cb):
-		self.queue.append((url, good_cb, bad_cb))
+	def enqueue(self, url, good_cb, bad_cb, headers=None):
+		self.queue.append((url, good_cb, bad_cb, headers))
 		self.next()
 	
 	def next(self):
 		# if we have something in the queue, and an available reducer, take care of it
 		if len(self.queue)>0 and self.count < self.pool_size:
-			url, success, err = self.queue.pop(0)
+			url, success, err, headers = self.queue.pop(0)
 
 			def succeed(*args, **kwargs):
 				log.debug("ClientQueue: success, queue size %d, reqs out %d" % (len(self.queue), self.count))
@@ -113,7 +113,7 @@ class ClientQueue:
 				self.next()
 
 			self.count += 1
-			defer = client.getPage(url)
+			defer = getPageWithHeaders(url, headers=headers).deferred
 			defer.addCallback(succeed)
 			defer.addErrback(fail)
 		else:
@@ -357,7 +357,7 @@ class HTTPProxy(resource.Resource):
 		deferred.addErrback(handle_error)
 
 		r = ReduceFunctionFetcher(self.conf_data, primary_urls, database, uri, view, request.args, deferred, self.client_queue, self.reduce_queue, options)
-		r.fetch()
+		r.fetch(request)
 		# we have a cached copy; we're just processing the request to replace it
 		if cached_result:
 			return cached_result
@@ -437,7 +437,7 @@ class HTTPProxy(resource.Resource):
 
 			urls = [node + "/_changes?" + urllib.urlencode(shard_args) for node in nodes]
 			fetcher = ChangesFetcher(shard, urls, reducer, deferred, self.client_queue)
-			fetcher.fetch()
+			fetcher.fetch(request)
 
 		return server.NOT_DONE_YET
 	
@@ -598,7 +598,7 @@ class HTTPProxy(resource.Resource):
 			fetcher.put_doc(doc['_id'])
 		else:
 			log.msg("create_doc " + request.uri + " fetching")
-			fetcher.fetch()
+			fetcher.fetch(request)
 
 		return server.NOT_DONE_YET
 	

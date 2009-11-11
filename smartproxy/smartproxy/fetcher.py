@@ -70,9 +70,13 @@ class HttpFetcher:
 		self.client_queue = client_queue
 
 	def fetch(self, request=None):
+		self._headers = request and request.getAllHeaders() or {}
+		self.next()
+	
+	def next(self):
 		url = self._remaining_nodes[0]
 		self._remaining_nodes = self._remaining_nodes[1:]
-		self.client_queue.enqueue(url, self._onsuccess, self._onerror)
+		self.client_queue.enqueue(url, self._onsuccess, self._onerror, self._headers)
 
 	def _onsuccess(self, result, *args, **kwargs):
 		pass
@@ -83,7 +87,7 @@ class HttpFetcher:
 			log.msg("unable to fetch data from shard %s.  Failing" % self._name)
 			self._deferred.errback(data)
 		else:
-			self.fetch()
+			self.next()
 
 class UuidFetcher(HttpFetcher):
 	def __init__(self, db, urls, deferred, body, conf):
@@ -120,13 +124,6 @@ class UuidFetcher(HttpFetcher):
 		self.factory.deferred.addCallback(succeed)
 		self.factory.deferred.addErrback(fail)
 
-def getPageWithHeaders(url, *args, **kwargs):
-	# basically a clone of client.getPage, but with a handle on the factory
-	# so we can pull the headers later
-	scheme, host, port, path = client._parse(url)
-	factory = client.HTTPClientFactory(url, *args, **kwargs)
-	reactor.connectTCP(host, port, factory)
-	return factory
 
 class MapResultFetcher(HttpFetcher):
 	def __init__(self, shard, nodes, reducer, deferred, client_queue):
