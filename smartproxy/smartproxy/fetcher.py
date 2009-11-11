@@ -269,13 +269,6 @@ class ReduceFunctionFetcher(HttpFetcher):
 		shards = self._config.shards(self._database)
 		reducer = Reducer(reduce_func, len(shards), self._args, self._deferred, self._reduce_queue)
 
-		# TODO: only look for stale as a query param
-		if "stale" in self._uri:
-			if "?" not in self._uri:
-				self._uri += "?stale=ok"
-			else:
-				self._uri += "&stale=ok"
-		
 		# make sure we don't call this deferred twice (using self._failed)
 		def handle_success(data):
 			log.debug("ReduceFunctionFetcher: handle_succes")
