@@ -94,7 +94,7 @@ class UuidFetcher(HttpFetcher):
 		self._body = body
 		self._config = conf
 
-	def fetch(self):
+	def fetch(self, request=None):
 		url = self._remaining_nodes[0]
 		self._remaining_nodes = self._remaining_nodes[1:]
 		d = client.getPage(url)
@@ -129,22 +129,24 @@ def getPageWithHeaders(url, *args, **kwargs):
 	return factory
 
 class MapResultFetcher(HttpFetcher):
-	def __init__(self, shard, nodes, reducer, deferred, client_queue, body='', method='GET'):
+	def __init__(self, shard, nodes, reducer, deferred, client_queue):
 		HttpFetcher.__init__(self, shard, nodes, deferred, client_queue)
-		self._method = method
 		self._reducer = reducer
-		self._body = body
 
 	def _onsuccess(self, page):
 		self._reducer.process_map(page, int(self.factory.status), self.factory.response_headers)
 
-	def fetch(self):
+	def fetch(self, request=None):
 		url = self._remaining_nodes[0]
+		headers = request and request.getAllHeaders() or {}
+		method = request and request.method or 'GET'
+
 		self._remaining_nodes = self._remaining_nodes[1:]
-		if self._method=='POST':
-			self.factory = getPageWithHeaders(url=url, postdata=self._body, method=self._method)
+		if method=='POST':
+			body = request and request.content.read() or ''
+			self.factory = getPageWithHeaders(url=url, postdata=body, method=method, headers=headers)
 		else:
-			self.factory = getPageWithHeaders(url=url, method=self._method)
+			self.factory = getPageWithHeaders(url=url, method=method, headers=headers)
 		self.factory.deferred.addCallback(self._onsuccess)
 		self.factory.deferred.addErrback(self._onerror)
 
@@ -191,8 +193,9 @@ class ChangesFetcher(HttpFetcher):
 
 	def fetch(self, request=None):
 		url = self._remaining_nodes[0]
+		headers = request and request.getAllHeaders() or {}
 		self._remaining_nodes = self._remaining_nodes[1:]
-		self.factory = getPageWithHeaders(url=url, method='GET')
+		self.factory = getPageWithHeaders(url=url, method='GET', headers=headers)
 		self.factory.deferred.addCallback(self._onsuccess)
 		self.factory.deferred.addErrback(self._onerror)
 
@@ -251,10 +254,10 @@ class ReduceFunctionFetcher(HttpFetcher):
 	
 	def fetch(self, request=None):
 		if self._do_reduce:
-			return HttpFetcher.fetch(self)
+			return HttpFetcher.fetch(self, request)
 		# if reduce=false, then we don't have to pull the reduce func out
 		# of the design doc.  Just go straight to the view
-		return self._onsuccess("{}")
+		return self._onsuccess("{}", request=request)
 
 	def _onsuccess(self, page, *args, **kwargs):
 		design_doc = cjson.decode(page)
@@ -287,7 +290,7 @@ class ReduceFunctionFetcher(HttpFetcher):
 					self._uri += "&stale=ok"
 			urls = ["/".join([node, self._uri]) for node in nodes]
 			fetcher = MapResultFetcher(shard, urls, reducer, shard_deferred, self._client_queue)
-			fetcher.fetch()
+			fetcher.fetch(request=kwargs.get('request'))
 
 class AllDbFetcher(HttpFetcher):
 	def __init__(self, config, nodes, deferred, client_queue):
@@ -307,17 +310,21 @@ class AllDbFetcher(HttpFetcher):
 
 class ProxyFetcher(HttpFetcher):
 	"""Pass along a GET, POST, or PUT."""
-	def __init__(self, name, nodes, method, headers, body, deferred, client_queue):
+	def __init__(self, name, nodes, body, deferred, client_queue):
 		HttpFetcher.__init__(self, name, nodes, deferred, client_queue)
-		self._method = method
-		self._headers = headers
 		self._body = body
 
 	def fetch(self, request=None):
 		url = self._remaining_nodes[0]
+		headers = request and request.getAllHeaders() or {}
+		method = request and request.method or 'GET'
+		body = ''
+		if method=='PUT' or method=='POST':
+			body = request and request.content.read() or ''
+
 		self._remaining_nodes = self._remaining_nodes[1:]
 		self._remaining_nodes = []
-		self.factory = getPageWithHeaders(url, method=self._method, postdata=self._body, headers=self._headers)
+		self.factory = getPageWithHeaders(url, method=self.method, postdata=body, headers=headers)
 		self.factory.deferred.addCallback(self._onsuccess)
 		self.factory.deferred.addErrback(self._onerror)
 

@@ -248,8 +248,8 @@ class HTTPProxy(resource.Resource):
 
 			nodes = self.conf_data.nodes(shard)
 			urls = ['/'.join([node, req]) for node in nodes]
-			fetcher = MapResultFetcher(shard, urls, reducer, deferred, self.client_queue, body=raw_body, method='POST')
-			fetcher.fetch()
+			fetcher = MapResultFetcher(shard, urls, reducer, deferred, self.client_queue)
+			fetcher.fetch(request)
 
 		return server.NOT_DONE_YET
 
@@ -455,7 +455,7 @@ class HTTPProxy(resource.Resource):
 			nodes = self.conf_data.nodes(shard)
 			urls = [self._rewrite_url("/".join([node, rest])) for node in nodes]
 			fetcher = MapResultFetcher(shard, urls, reducer, deferred, self.client_queue)
-			fetcher.fetch()
+			fetcher.fetch(request)
 
 		return server.NOT_DONE_YET
 	
@@ -492,11 +492,8 @@ class HTTPProxy(resource.Resource):
 		database, rest = request.uri[1:].split('/',1)
 		_primary_urls = ['/'.join([host, rest]) for host in self.conf_data.primary_shards(database)]
 		primary_urls = [self._rewrite_url(url) for url in _primary_urls]
-		body = ''
-		if request.method=='PUT' or request.method=='POST':
-			body = request.content.read()
-		fetcher = ProxyFetcher("proxy", primary_urls, request.method, request.getAllHeaders(), body, deferred, self.client_queue)
-		fetcher.fetch()
+		fetcher = ProxyFetcher("proxy", primary_urls, deferred, self.client_queue)
+		fetcher.fetch(request)
 		return server.NOT_DONE_YET
 
 	def render_GET(self, request):
