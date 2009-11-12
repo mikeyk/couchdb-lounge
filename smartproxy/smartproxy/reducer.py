@@ -279,7 +279,7 @@ class Reducer:
 		self.descending = 'true' in args.get('descending', ['false'])
 		self.etags = {}
 
-	def process_map(self, data, code=None, headers=None, shard=None):
+	def process_map(self, data, shard=None, headers=None, code=None):
 		if code is not None:
 			self.coderecvd = code
 		if headers is not None:
@@ -390,7 +390,7 @@ class ChangesReducer(Reducer):
 		self._response_headers = None
 		Reducer.__init__(self, None, len(self._sequence), {}, deferred, None)
 
-	def process_map(self, shard, data, headers):
+	def process_map(self, data, shard, headers):
 		#TODO: check to make sure this doesn't go less than 0
 		log.msg("Got headers: %s" % str(headers))
 		if not self._response_headers:

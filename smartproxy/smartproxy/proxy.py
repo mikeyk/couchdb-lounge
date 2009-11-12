@@ -361,21 +361,22 @@ class HTTPProxy(resource.Resource):
 			return cached_result
 		return server.NOT_DONE_YET
 	
-	def render_continuous_changes(self, request, database, args):
+	def render_continuous_changes(self, request, database):
 		shards = self.conf_data.shards(database)
 
-		if 'since' in args:
-			since = cjson.decode(args['since'])
+		if 'since' in request.args:
+			since = cjson.decode(request.args['since'][-1])
 		else:
 			since = len(shards)*[0]
 
 		consumer = ChangesMerger(request, since)
 
-		shard_args = copy.copy(args)
+		shard_args = copy.copy(request.args)
 		urls = []
 		for i,shard in enumerate(shards):
-			shard_args['since'] = since[i]
-			urls = [node + '/_changes?' + urllib.urlencode(shard_args) for node in self.conf_data.nodes(shard)]
+			shard_args['since'] = [since[i]]
+			qs = urllib.urlencode([(k,v) for k in shard_args for v in shard_args[k]])
+			urls = [node + '/_changes?' + qs for node in self.conf_data.nodes(shard)]
 			# TODO failover to the slaves
 			url = urls[0]
 			log.msg("connecting factory to " + url)
@@ -389,7 +390,7 @@ class HTTPProxy(resource.Resource):
 		database, changes = request.path[1:].split('/', 1)
 
 		if 'continuous' in request.args.get('feed',['nofeed']):
-			return self.render_continuous_changes(request, database, args)
+			return self.render_continuous_changes(request, database)
 
 		deferred = defer.Deferred()
 
@@ -426,10 +427,11 @@ class HTTPProxy(resource.Resource):
 		reducer = ChangesReducer(seq, deferred)
 		for shard,shard_seq in zip(shards, seq):
 			nodes = self.conf_data.nodes(shard)
-			shard_args = copy.copy(args)
+			shard_args = copy.copy(request.args)
 			shard_args['since'] = [shard_seq]
 
-			urls = [node + "/_changes?" + urllib.urlencode(shard_args) for node in nodes]
+			qs = urllib.urlencode([(k,v) for k in shard_args for v in shard_args[k]])
+			urls = [node + "/_changes?" + qs for node in nodes]
 			fetcher = ChangesFetcher(shard, urls, reducer, deferred, self.client_queue)
 			fetcher.fetch(request)
 
@@ -605,7 +607,7 @@ class HTTPProxy(resource.Resource):
 	def do_db_op(self, request):
 		"""Do an operation on each shard in a database."""
 		# chop off the leading /
-		uri = request.uri[1:]
+		uri = request.path[1:]
 		if '/' in uri:
 			db_name, rest = uri.split('/', 1)
 		else:
@@ -614,8 +616,8 @@ class HTTPProxy(resource.Resource):
 			rest = None
 
 		# make sure it's an operation we support
-		if rest not in [None, '_ensure_full_commit']:
-			request.setResponeCode(500)
+		if rest in [None, '_ensure_full_commit']:
+			request.setResponseCode(500)
 			return cjson.encode({"error": "smartproxy got a " + request.method + " to " + request.uri + ". don't know how to handle it"})+"\n"
 
 		# farm it out.  generate a list of resources to PUT

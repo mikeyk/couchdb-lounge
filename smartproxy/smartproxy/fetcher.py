@@ -131,7 +131,7 @@ class MapResultFetcher(HttpFetcher):
 		self._reducer = reducer
 
 	def _onsuccess(self, page):
-		self._reducer.process_map(page, int(self.factory.status), self.factory.response_headers, self._name)
+		self._reducer.process_map(page, self._name, self.factory.response_headers, int(self.factory.status))
 
 	def _onerror(self, data):
 		self._deferred.errback(data)
@@ -189,7 +189,7 @@ class ChangesFetcher(HttpFetcher):
 		self._shard = shard
 
 	def _onsuccess(self, page, *args, **kwargs):
-		self._reducer.process_map(self._shard, page, self.factory.response_headers, self._name)
+		self._reducer.process_map(page, self._shard, self.factory.response_headers)
 
 	def fetch(self, request=None):
 		url = self._remaining_nodes[0]
