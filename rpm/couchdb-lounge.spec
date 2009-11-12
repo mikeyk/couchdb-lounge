@@ -1,5 +1,5 @@
 Name:		couchdb-lounge
-Version: 	1.0	
+Version: 	1.1	
 Release:	1%{?dist}
 Summary:	Clustered CouchDB
 Group: 		Database/CouchDBCluster
@@ -17,16 +17,10 @@ Metapackage wrapping the dependencies for the various lounge components
 %build
 
 %install
-mkdir -p %{buildroot}/var/lounge/etc/
-touch %{buildroot}/var/lounge/etc/shards.conf
 
 %post
 /etc/init.d/couchdb stop
 /etc/init.d/couchdb start
 /etc/init.d/smartproxyd restart
 /etc/init.d/dumbproxy restart
-
-%files
-/var/lounge/etc/shards.conf
-
 
