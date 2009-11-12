@@ -1,7 +1,7 @@
 Summary: Lounge Dumb Proxy
 Name: lounge-dumb-proxy
 Version: 1.0
-Release: 1
+Release: 2
 URL: http://tilgovi.github.com/couchdb-lounge
 License: None
 Group: Lounge
@@ -61,8 +61,8 @@ rm -Rf $RPM_BUILD_ROOT
 %files
 %defattr(-,root,root)
 
-/etc/lounge/nginx/
+%config(noreplace) /etc/lounge/nginx/nginx.conf
+%config(noreplace) /etc/lounge/shards.conf
 /var/log/lounge/nginx/
 /usr/bin/nginx-lounge
 /etc/init.d/dumbproxy
-/etc/lounge/shards.conf
