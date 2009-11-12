@@ -255,9 +255,8 @@ class HTTPProxy(resource.Resource):
 
 	def render_view(self, request):
 		"""Farm out a view query to all nodes and combine the results."""
-		#database, _view, document, view = parse_uri(request.uri)
-		uri = request.uri[1:]
-		parts = uri.split('/')
+		path = request.path[1:]
+		parts = path.split('/')
 		database = parts[0]
 		if parts[1] == '_design':
 			view = parts[4]
@@ -265,23 +264,23 @@ class HTTPProxy(resource.Resource):
 		else:
 			view = parts[3]
 			design_doc = "_design%2F" + parts[2]
-		# strip query string from view name
-		qs = ""
-		options = {}
-		if '?' in view:
-			# TODO why aren't we using qsparse or something?
-			view, qs = view.split("?")
-			options = dict([kv.split("=") for kv in qs.split("&")])
 
-		uri_no_db = uri[ uri.find('/')+1:]
-
+		path_no_db = path[ path.find('/')+1:]
 			
 		#  old:  http://host:5984/db/_view/designname/viewname
 		#  new:  http://host:5984/db/_design/designname/_view/viewname
 
+		# build the query string to send to shard requests
+		strip_params = ['skip'] # handled by smartproxy, do not pass
+		if 'skip' in request.args:
+			strip_params.append('limit') # damn, have to handle limit in smartproxy -- SLOW!!!
+		args = dict([(k,v) for k,v in request.args.iteritems() if k.lower() not in strip_params])
+		qs = urllib.urlencode([(k,v) for k in args for v in args[k]] or '')
+		if qs: qs = '?' + qs
+
 		primary_urls = [self._rewrite_url("/".join([host, design_doc])) for host in self.conf_data.primary_shards(database)]
 
-		uri = request.uri.split("/",2)[2]
+		uri = request.path.split("/",2)[2] + qs
 
 		# check if this uri is cacheable
 		request.cache = None
@@ -355,7 +354,7 @@ class HTTPProxy(resource.Resource):
 			request.finish()
 		deferred.addErrback(handle_error)
 
-		r = ReduceFunctionFetcher(self.conf_data, primary_urls, database, uri, view, deferred, self.client_queue, self.reduce_queue, options)
+		r = ReduceFunctionFetcher(self.conf_data, primary_urls, database, uri, view, deferred, self.client_queue, self.reduce_queue)
 		r.fetch(request)
 		# we have a cached copy; we're just processing the request to replace it
 		if cached_result:
@@ -387,13 +386,9 @@ class HTTPProxy(resource.Resource):
 		return server.NOT_DONE_YET
 	
 	def render_changes(self, request):
-		database, changes = request.uri[1:].split('/', 1)
-		qs = ''
-		if '?' in changes:
-			changes, qs = changes.split('?', 1)
-		args = qsparse(qs)
+		database, changes = request.path[1:].split('/', 1)
 
-		if args.get('feed','nofeed')=='continuous':
+		if 'continuous' in request.args.get('feed',['nofeed']):
 			return self.render_continuous_changes(request, database, args)
 
 		deferred = defer.Deferred()
@@ -427,12 +422,12 @@ class HTTPProxy(resource.Resource):
 		deferred.addErrback(handle_error)
 
 		shards = self.conf_data.shards(database)
-		seq = cjson.decode(args.get('since', cjson.encode([0 for shard in shards])))
+		seq = cjson.decode(request.args.get('since', [cjson.encode([0 for shard in shards])])[-1])
 		reducer = ChangesReducer(seq, deferred)
 		for shard,shard_seq in zip(shards, seq):
 			nodes = self.conf_data.nodes(shard)
 			shard_args = copy.copy(args)
-			shard_args['since'] = shard_seq
+			shard_args['since'] = [shard_seq]
 
 			urls = [node + "/_changes?" + urllib.urlencode(shard_args) for node in nodes]
 			fetcher = ChangesFetcher(shard, urls, reducer, deferred, self.client_queue)
@@ -442,17 +437,23 @@ class HTTPProxy(resource.Resource):
 	
 	def render_all_docs(self, request):
 		# /database/_all_docs?stuff => database, _all_docs?stuff
-		database, rest = request.uri[1:].split('/', 1)
+		database, rest = request.path[1:].split('/', 1)
 		deferred = defer.Deferred()
 		deferred.addCallback(make_success_callback(request))
 		deferred.addErrback(make_errback(request))
+
+		# build the query string to send to shard requests
+		strip_params = ['skip'] # handled by smartproxy, do not pass
+		args = dict([(k,v) for k,v in request.args.iteritems() if k.lower() not in strip_params])
+		qs = urllib.urlencode([(k,v) for k in args for v in args[k]] or '')
+		if qs: qs = '?' + qs
 
 		# this is exactly like a view with no reduce
 		shards = self.conf_data.shards(database)
 		reducer = AllDocsReducer(None, len(shards), request.args, deferred, self.reduce_queue)
 		for shard in shards:
 			nodes = self.conf_data.nodes(shard)
-			urls = [self._rewrite_url("/".join([node, rest])) for node in nodes]
+			urls = [self._rewrite_url("/".join([node, rest])) + qs for node in nodes]
 			fetcher = MapResultFetcher(shard, urls, reducer, deferred, self.client_queue)
 			fetcher.fetch(request)
 
@@ -488,7 +489,7 @@ class HTTPProxy(resource.Resource):
 			request.finish()
 		deferred.addErrback(handle_error)
 
-		database, rest = request.uri[1:].split('/',1)
+		database, rest = request.path[1:].split('/',1)
 		_primary_urls = ['/'.join([host, rest]) for host in self.conf_data.primary_shards(database)]
 		primary_urls = [self._rewrite_url(url) for url in _primary_urls]
 		fetcher = ProxyFetcher("proxy", primary_urls, deferred, self.client_queue)
@@ -515,12 +516,12 @@ class HTTPProxy(resource.Resource):
 
 		# GET /db/_all_docs .. or ..
 		# GET /db/_all_docs?options
-		if request.uri.endswith("/_all_docs") or ("/_all_docs?" in request.uri):
+		if request.path.endswith("/_all_docs"):
 			return self.render_all_docs(request)
 
 		# GET /db/_changes .. or ..
 		# GET /db/_changes?options
-		if request.uri.endswith("/_changes") or ("/_changes?" in request.uri):
+		if request.path.endswith("/_changes"):
 			return self.render_changes(request)
 
 		if '/_view/' in request.uri:
@@ -681,9 +682,6 @@ class HTTPProxy(resource.Resource):
 
 		if '_design%2F' in new_url:
 			new_url = new_url.replace('_design%2F', '_design/')
-
-		new_url = new_url.replace('?count', '?limit')
-		new_url = new_url.replace('&count', '&limit')
 
 		log.debug('_rewrite_url: "%s" => "%s"' % (url, new_url))
 		return new_url

@@ -239,7 +239,7 @@ class DbGetter(DbFetcher):
 			self._deferred.callback(self._acc)
 
 class ReduceFunctionFetcher(HttpFetcher):
-	def __init__(self, config, nodes, database, uri, view, deferred, client_queue, reduce_queue, options={}):
+	def __init__(self, config, nodes, database, uri, view, deferred, client_queue, reduce_queue):
 		HttpFetcher.__init__(self, "reduce_func", nodes, deferred, client_queue)
 		self._config = config
 		self._view = view
@@ -249,17 +249,15 @@ class ReduceFunctionFetcher(HttpFetcher):
 		self._client_queue = client_queue
 		self._failed = False
 
-		self._do_reduce = (options.get("reduce","true")=="true")
-	
 	def fetch(self, request=None):
 		self._request = request
 		self._args = self._request and self._request.args or {}
 
-		if self._do_reduce:
+		if 'false' not in self._args.get('reduce', ['true']):
 			return HttpFetcher.fetch(self, self._request)
 		# if reduce=false, then we don't have to pull the reduce func out
 		# of the design doc.  Just go straight to the view
-		return self._onsuccess("{}", request=self._request)
+		return self._onsuccess("{}")
 
 	def _onsuccess(self, page, *args, **kwargs):
 		design_doc = cjson.decode(page)
@@ -313,12 +311,13 @@ class ProxyFetcher(HttpFetcher):
 
 	def fetch(self, request=None):
 		url = self._remaining_nodes[0]
+		qs = urllib.urlencode([(k,v) for k in request.args for v in request.args[k]] or '')
+		if qs: url += '?' + qs
 		headers = request and request.getAllHeaders() or {}
 		method = request and request.method or 'GET'
 		body = ''
 		if method=='PUT' or method=='POST':
 			body = request and request.content.read() or ''
-
 		self._remaining_nodes = self._remaining_nodes[1:]
 		self._remaining_nodes = []
 		self.factory = getPageWithHeaders(url, method=method, postdata=body, headers=headers)

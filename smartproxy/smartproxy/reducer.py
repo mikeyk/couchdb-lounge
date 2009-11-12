@@ -23,7 +23,6 @@ import random
 import re
 import sys
 import time
-import urllib
 
 import cjson
 
@@ -148,6 +147,7 @@ def unique_merge(rows1, rows2, compare=cmp):
 		else:
 			out.append(rows2[j])
 		# advance both until we no longer match
+		# TODO: manipulate total_rows when we find dups
 		while i<len(rows1) and compare(rows1[i]["key"], out[-1]["key"])==0:
 			i += 1
 		while j<len(rows2) and compare(rows2[j]["key"], out[-1]["key"])==0:
@@ -173,7 +173,7 @@ def merge(r1, r2, compare=json_cmp, unique=False, descending=False):
 	if "offset" in r2:
 		if not ("offset" in r1):
 			r1["offset"] = 0
-		r1["offset"] += r2["offset"]
+		r1["offset"] = r2["offset"]
 	return r1
 
 class ReduceQueue:
@@ -265,14 +265,18 @@ class Reducer:
 		self.reduce_deferred = deferred
 		self.reduces_out = 0
 		self.count = None
-		self.reduce_queue = reduce_queue
-		if 'count' in args:
+		self.skip = 0
+		if 'limit' in args:
+			self.count = int(args['limit'][0])
+		elif 'count' in args:
 			self.count = int(args['count'][0])
+		if 'skip' in args:
+			self.skip = int(args['skip'][0])
+		self.reduce_queue = reduce_queue
 		self.coderecvd = None
 		self.headersrecvd = None
 
-		self.descending = args.get('descending', 'false')
-		self.descending = (self.descending=='true') and True or False
+		self.descending = 'true' in args.get('descending', ['false'])
 		self.etags = {}
 
 	def process_map(self, data, code=None, headers=None, shard=None):
@@ -280,9 +284,10 @@ class Reducer:
 			self.coderecvd = code
 		if headers is not None:
 			if shard is not None:
-				etag = filter(lambda k: k.lower() == 'etag', headers)
-				self.etags[shard] = headers[etag[0]][-1]
-				log.debug("process_map: etag for shard %s is %s" % (shard, self.etags[shard]))
+				etag = [vs[-1] for (k,vs) in headers.iteritems() if k.lower() == 'etag']
+				etag = etag and etag[0].strip('"') or ''
+				self.etags[shard] = etag
+				log.debug("process_map: etag for shard %s is %s" % (shard, etag))
 			self.headersrecvd = headers
 
 		#TODO: check to make sure this doesn't go less than 0
@@ -291,7 +296,7 @@ class Reducer:
 			results = cjson.decode(data)
 		except:
 			log.err('Could not json decode: %s' % data)
-			results = {'rows': []}
+			results = {'total_rows': 0, 'offset': 0, 'rows': []}
 		#result => {'rows' : [ {key: key1, value:value1}, {key:key2, value:value2}]}
 		self.queue_data(results)
 
@@ -339,14 +344,15 @@ class Reducer:
 			if self.num_entries_remaining == 0 and self.reduces_out == 0:
 				# if this was a count query, slice stuff off
 				if self.count is not None:
-					self.queue[0]['rows'] = self.queue[0]['rows'][0:self.count]
+					log.debug("count: %d, skip: %d, results: %d" % (self.count, self.skip, len(self.queue[0]['rows'])))
+					self.queue[0]['rows'] = self.queue[0]['rows'][self.skip:self.skip+self.count]
+				elif self.skip > 0:
+					self.queue[0]['rows'] = self.queue[0]['rows'][self.skip:]
 				body = cjson.encode(self.queue[0])
 				if self.coderecvd is not None and self.headersrecvd is not None:
 					# filter headers that should not be reverse proxied
 					strip_headers = ['content-length', 'etag']
-					strip_filter = lambda k: k.lower() not in strip_headers
-					keys = filter(strip_filter, self.headersrecvd)
-					headers = dict([(k,self.headersrecvd[k]) for k in keys])
+					headers = dict([(k,v) for k,v in self.headersrecvd.iteritems() if k.lower() not in strip_headers])
 
 					# calculate a deterministic etag
 					nodes = self.etags.keys()
@@ -355,7 +361,7 @@ class Reducer:
 					for node in nodes:
 						md5etag.update(self.etags[node])
 					if len(nodes) > 0:
-						headers['etag'] = [md5etag.hexdigest()]
+						headers['etag'] = ['"%s"' % md5etag.hexdigest()]
 					log.debug("Reducer: response headers = %s" % str(headers))
 					
 					self.reduce_deferred.callback((self.coderecvd, headers, body))
