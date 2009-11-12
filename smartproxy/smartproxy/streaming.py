@@ -32,7 +32,7 @@ class StreamingHTTPClient(HTTPPageGetter):
 	def lineReceived(self, line):
 		if self.body:
 			try:
-				self.factory.consumer.write((self.factory.shard_idx, line))
+				self.factory.consumer.write((self.factory.shard_idx, line + '\n'))
 			except:
 				# no consumer is listening, abort
 				self.transport.loseConnection()

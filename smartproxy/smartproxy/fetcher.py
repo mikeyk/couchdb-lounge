@@ -192,12 +192,16 @@ class ChangesFetcher(HttpFetcher):
 		self._reducer.process_map(page, self._shard, self.factory.response_headers)
 
 	def fetch(self, request=None):
+		self._request = request
 		url = self._remaining_nodes[0]
 		headers = request and request.getAllHeaders() or {}
 		self._remaining_nodes = self._remaining_nodes[1:]
 		self.factory = getPageWithHeaders(url=url, method='GET', headers=headers)
 		self.factory.deferred.addCallback(self._onsuccess)
 		self.factory.deferred.addErrback(self._onerror)
+
+	def next(self):
+		self.fetch(self._request)
 
 class DbGetter(DbFetcher):
 	"""Get info about every shard of a database and accumulate the results."""

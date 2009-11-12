@@ -419,23 +419,48 @@ class ChangesMerger:
 	def __init__(self, request, since):
 		self.request = request
 		self.seq = copy.copy(since)
-		self.producers = 0
+		self.producers = {}
+		self.started = False
+		self.request.connectionLost = self.connectionLost
 
 	def registerProducer(self, producer, streaming):
-		self.producers += 1
+		self.producers[producer.factory.shard_idx] = producer
+		old_status_fun = producer.handleStatus
+		def status_wrapper(v, s, m):
+			old_status_fun(v, s, m)
+			self.handleStatus(v, s, m)
+		producer.handleStatus = status_wrapper
 
 	def unregisterProducer(self):
-		self.producers -= 1
-		if self.producers < 1:
-			self.request.write(cjson.encode({"last_seq": cjson.encode(self.seq)}) + "\n")
-			self.request.finish()
+		pass
 
 	def write(self, data):
 		shard_idx, line = data
+		if not self.started:
+			self.started = True
+			self.request.headers = dict([(k,v[-1]) for k,v in self.producers[shard_idx].headers.iteritems() if k.lower() != 'content-length'])
+
+		if line == '\n': # heartbeat
+			self.request.write('\n')
+			return
+
 		row = cjson.decode(line)
+		if 'seq' not in row: # error message, pass through
+			self.request.write(line)
+			self.request.finish()
+			self.connectionLost(line)
+			self.write = lambda d: None
+			return
+		
 		self.seq[shard_idx] = row['seq']
 		row['seq'] = cjson.encode(self.seq)
+		self.request.write(cjson.encode(row) + '\n')
+		
+	def connectionLost(self, reason):
+		for producer in self.producers.itervalues():
+			producer.connectionLost(reason)
 
-		self.request.write(cjson.encode(row) + "\n")
+	def handleStatus(self, version, status, message):
+		self.request.setResponseCode(int(status), message)
 
 # vi: noexpandtab ts=2 sts=2 sw=2

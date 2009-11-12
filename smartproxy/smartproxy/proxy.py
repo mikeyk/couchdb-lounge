@@ -368,7 +368,7 @@ class HTTPProxy(resource.Resource):
 			since = cjson.decode(request.args['since'][-1])
 		else:
 			since = len(shards)*[0]
-
+		
 		consumer = ChangesMerger(request, since)
 
 		shard_args = copy.copy(request.args)
@@ -380,7 +380,7 @@ class HTTPProxy(resource.Resource):
 			# TODO failover to the slaves
 			url = urls[0]
 			log.msg("connecting factory to " + url)
-			factory = streaming.StreamingHTTPClientFactory(url, consumer=consumer, shard_idx=i)
+			factory = streaming.StreamingHTTPClientFactory(url, headers=request.getAllHeaders(), consumer=consumer, shard_idx=i)
 			scheme, host, port, path = client._parse(url)
 			reactor.connectTCP(host, port, factory)
 
@@ -400,7 +400,7 @@ class HTTPProxy(resource.Resource):
 				if len(headers[k])>0:
 					request.setHeader(normalize_header(k), headers[k][0])
 			request.setResponseCode(code)
-			request.write(doc)
+			request.write(doc + '\n')
 			request.finish()
 		deferred.addCallback(send_output)
 
