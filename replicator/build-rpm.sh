@@ -1,6 +1,6 @@
 #!/bin/sh
 
-VERSION=1.1.1
+VERSION=1.2.0
 RPMBUILDDIR=`rpm --eval "%{_topdir}"`
 SOURCE_TARBALL=rn.tar.gz
 DIR=lounge-replicator-$VERSION/
@@ -15,3 +15,5 @@ tar czf rn.tar.gz $DIR
 rm -f $RPMBUILDDIR/SOURCES/$DIR || true
 cp $SOURCE_TARBALL $RPMBUILDDIR/SOURCES
 rpmbuild -ba --clean --rmsource lounge-replicator.spec
+rm -f $SOURCE_TARBALL
+rm -rf $DIR

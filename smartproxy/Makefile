@@ -1,5 +1,5 @@
 # build number, increment with each new build, reset on new version
-RELEASE = 1
+RELEASE = 2
 
 
 PY_VERSION := $(shell python -V 2>&1)
@@ -22,7 +22,7 @@ install:
 
 rpm:
 	echo $(PY_VERSION)
-	python setup.py bdist_rpm --release="$(RELEASE)" --requires "Twisted, python-cjson, zope.interface, python-lounge, python-simplejson" $(PY_EXTRA)
+	python setup.py bdist_rpm --release="$(RELEASE)" --requires "Twisted, python-pyicu, python-cjson, zope.interface, python-lounge >= 1.3.3" $(PY_EXTRA)
 
 clean:
 	rm -f MANIFEST

@@ -22,6 +22,9 @@ default:
 install:
 	python setup.py install $(root)
 
+rpm:
+	python setup.py bdist_rpm --release="$(RELEASE)" $(PY_EXTRA)
+
 .PHONY: test
 test:
 	cd test ; python lounge_test.py
