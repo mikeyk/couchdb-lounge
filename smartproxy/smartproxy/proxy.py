@@ -616,7 +616,7 @@ class HTTPProxy(resource.Resource):
 			rest = None
 
 		# make sure it's an operation we support
-		if rest in [None, '_ensure_full_commit']:
+		if rest not in [None, '_ensure_full_commit']:
 			request.setResponseCode(500)
 			return cjson.encode({"error": "smartproxy got a " + request.method + " to " + request.uri + ". don't know how to handle it"})+"\n"
 
