@@ -16,7 +16,7 @@
 
 # install me to /var/lounge/lib/replication_notifier.py
 
-LOG_PATH = '/var/lounge/log/replication_notifier.log'
+LOG_PATH = '/var/log/lounge/replicator/replication_notifier.log'
 
 import logging
 import os
@@ -112,7 +112,7 @@ def load_config(fname):
 		shard_map = old
 
 def read_config_if_changed(last_read):
-	fname = "/var/lounge/etc/shards.conf"
+	fname = "/etc/lounge/shards.conf"
 	mtime = os.stat(fname)[ST_MTIME]
 	if last_read is None or mtime > last_read:
 		load_config(fname)

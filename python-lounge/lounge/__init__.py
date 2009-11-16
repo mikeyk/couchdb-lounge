@@ -4,7 +4,7 @@ import simplejson
 class ShardMap(object):
 	def __init__(self, fname=None):
 		if fname is None:
-			fname = "/var/lounge/etc/shards.conf"
+			fname = "/etc/lounge/shards.conf"
 		self.load_config(fname)
 		self.get_db_shard = re.compile(r'^(.*\D)(\d+)$')
 	
