@@ -130,7 +130,7 @@ def main():
 			try:
 				# wait for a line from the database
 				stuff = sys.stdin.readline()
-				if stuff == None:
+				if not stuff:
 					return
 				# format: {"type": "updated", "db": "nameofdb"}
 				notification = simplejson.loads(stuff)
