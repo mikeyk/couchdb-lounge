@@ -1,6 +1,6 @@
 Name:		couchdb-lounge
 Version: 	1.2.0
-Release:	5%{?dist}
+Release:	6%{?dist}
 Summary:	Clustered CouchDB
 Group: 		Database/CouchDBCluster
 License: 	Apache
@@ -13,12 +13,15 @@ Requires:  lounge-dumbproxy >= 1.2.0, lounge-smartproxy >= 1.2.2, couchdb >= 0.1
 Metapackage wrapping the dependencies for the various lounge components
 
 %prep
+cp -p %{_sourcedir}/lounge.ini .
 
 %build
 
 %clean
 
 %install
+mkdir -p %{buildroot}/etc/couchdb/local.d
+cp %{_builddir}/lounge.ini %{buildroot}/etc/couchdb/local.d/lounge.ini
 
 %post
 /etc/init.d/couchdb stop
@@ -27,3 +30,5 @@ Metapackage wrapping the dependencies for the various lounge components
 /etc/init.d/dumbproxy restart
 
 %files
+%config(noreplace)/etc/couchdb/local.d/lounge.ini
+
