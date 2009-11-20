@@ -26,6 +26,7 @@ db_config = {
 	}
 db_connectinfo = None
 db_prefix = ''
+db_timeout = None
 
 def random_junk():
 	return ''.join(random.sample("abcdefghijklmnopqrstuvwxyz", 6))
@@ -164,6 +165,8 @@ class Resource(object):
 			# curl's debug messages add extra newlines
 			logging.debug(dmsg.strip())
 		curl = pycurl.Curl()
+		if db_timeout is not None:
+			curl.setopt(pycurl.TIMEOUT, db_timeout)
 		curl.setopt(pycurl.VERBOSE, 1)
 		curl.setopt(pycurl.DEBUGFUNCTION, dbg)
 
