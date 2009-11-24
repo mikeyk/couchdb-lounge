@@ -92,7 +92,7 @@ def replicate(shard):
 	for target in shard_map.nodes(source):
 		# for full replication, we don't want to replicate to our self.	how silly
 		if i_dont_host(target):
-			do_background_replication(source, target)
+			do_background_replication(local, target)
 	
 	# then design replications: from shard 0 to the rest
 	shard_index = shard_map.get_index_from_shard(source)
