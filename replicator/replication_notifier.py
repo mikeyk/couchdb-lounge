@@ -14,7 +14,7 @@
 #See the License for the specific language governing permissions and
 #limitations under the License.
 
-# install me to /var/lounge/lib/replication_notifier.py
+# install me to /var/lib/lounge/replication_notifier.py
 
 LOG_PATH = '/var/log/lounge/replicator/replication_notifier.log'
 
