@@ -503,6 +503,13 @@ class HTTPProxy(resource.Resource):
 			request.setHeader('Content-Type', 'text/html')
 			return "imok"
 
+		if request.uri == "/_smartproxy_stats":
+			request.setHeader('Content-Type', 'text/plain')
+			status = """ClientQueue size: %d\nClient reqs out: %d\nReduceQueue size: %d\nReduce pool size: %d\n\nGETs in progress:\n""" % (len(self.client_queue.queue), self.client_queue.count, len(self.reduce_queue.queue), len(self.reduce_queue.pool))
+			for uri in self.in_progress:
+				status += "  * %s (%d)\n" % (uri, len(self.in_progress[uri]))
+			return status + "\n"
+
 		if request.uri == "/_all_dbs":
 			db_urls = [self._rewrite_url(host + "_all_dbs") for host in self.conf_data.nodes()]
 			deferred = defer.Deferred()
