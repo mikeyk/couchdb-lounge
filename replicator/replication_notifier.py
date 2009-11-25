@@ -99,7 +99,7 @@ def replicate(shard):
 	if shard_index==0:
 		for target in shard_map.primary_shards(shard_map.get_db_from_shard(source)):
 			if target != local:
-				do_background_replication(source, target, designonly=True)
+				do_background_replication(local, target, designonly=True)
 
 def load_config(fname):
 	global shard_map
