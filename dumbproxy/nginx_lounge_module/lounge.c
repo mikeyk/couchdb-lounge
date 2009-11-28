@@ -22,6 +22,8 @@ limitations under the License.
 #define LOUNGE_PROXY_NODES_KEY "nodes"
 #define LOUNGE_PROXY_SHARDMAP_KEY "shard_map"
 
+#define FAILED_NODE_MAX_RETRY 60 * 10
+
 enum {
 	LOUNGE_PROXY_HOST_INDEX = 0,
 	LOUNGE_PROXY_PORT_INDEX
@@ -32,24 +34,32 @@ typedef struct {
 } lounge_loc_conf_t;
 
 typedef struct {
-	ngx_uint_t 						shard_id;	
-	ngx_uint_t 						current_host_id;
-    ngx_uint_t 						try_i;
-	ngx_peer_addr_t 				**addrs;
-	ngx_uint_t 						num_peers;
+	ngx_peer_addr_t      peer;
+	time_t               fail_retry_time;
+	ngx_uint_t           fail_count;
+} lounge_peer_t;
+
+typedef struct {
+	ngx_uint_t           shard_id;	
+	ngx_uint_t           current_host_id;
+    ngx_uint_t           try_i;
+	lounge_peer_t        **addrs;
+	ngx_uint_t           num_peers;
 } lounge_proxy_peer_data_t;
 
 typedef struct {
 	ngx_uint_t 						*num_peers;
-	ngx_peer_addr_t					***shard_id_peers;
+	time_t  						*fail_times;
+	ngx_uint_t 						*fail_counts;
+	lounge_peer_t					***shard_id_peers;
 } lounge_shard_lookup_table_t;
 
 typedef struct {
-	ngx_int_t						num_shards;
-	ngx_str_t 						json_filename;
-	ngx_peer_addr_t 				*couch_nodes;
-	ngx_uint_t 						num_couch_nodes;
-	lounge_shard_lookup_table_t 	lookup_table;
+	ngx_int_t                    num_shards;
+	ngx_str_t                    json_filename;
+	lounge_peer_t                *couch_nodes;
+	ngx_uint_t                   num_couch_nodes;
+	lounge_shard_lookup_table_t  lookup_table;
 } lounge_main_conf_t;
 
 static void *lounge_create_loc_conf(ngx_conf_t *cf);
@@ -309,7 +319,7 @@ lounge_proxy_build_lookup_table(ngx_conf_t *cf, lounge_main_conf_t *lmcf,
 	}
 	lounge_lookup_table->num_peers = ngx_pcalloc(cf->pool, sizeof(ngx_uint_t) * num_shards);
 	lounge_lookup_table->shard_id_peers = ngx_pcalloc(cf->pool, 
-			sizeof(ngx_peer_addr_t **) * num_shards);
+			sizeof(lounge_peer_t **) * num_shards);
 
 	for (i = 0; i < num_shards; i++) {
 		unsigned int num_hosts;
@@ -321,7 +331,7 @@ lounge_proxy_build_lookup_table(ngx_conf_t *cf, lounge_main_conf_t *lmcf,
 		lounge_lookup_table->num_peers[i] = num_hosts;
 
 		lounge_lookup_table->shard_id_peers[i] = ngx_pcalloc(cf->pool, 
-			sizeof(ngx_peer_addr_t *) * num_hosts);
+			sizeof(lounge_peer_t *) * num_hosts);
 
 		for (j = 0; j < num_hosts; j++) {
 			host = json_object_array_get_idx(shard_host_array, j);
@@ -345,7 +355,7 @@ lounge_proxy_build_peer_list(ngx_conf_t *cf, lounge_main_conf_t *lmcf, struct js
 	couch_proxies = json_object_object_get(couch_proxy_conf, LOUNGE_PROXY_NODES_KEY);
 	num_proxies = json_object_array_length(couch_proxies);
 
-    lmcf->couch_nodes = ngx_pcalloc(cf->pool, sizeof(ngx_peer_addr_t) * num_proxies);
+    lmcf->couch_nodes = ngx_pcalloc(cf->pool, sizeof(lounge_peer_t) * num_proxies);
     if (lmcf->couch_nodes == NULL) {
         return NGX_ERROR;
     }
@@ -387,7 +397,7 @@ lounge_proxy_build_peer_list(ngx_conf_t *cf, lounge_main_conf_t *lmcf, struct js
 			return NGX_ERROR;
 		}
 
-		lmcf->couch_nodes[proxy_index] = *u->addrs;
+		lmcf->couch_nodes[proxy_index].peer = *u->addrs;
 	}
 	return NGX_OK;
 }
@@ -472,7 +482,7 @@ lounge_proxy_init_peer(ngx_http_request_t *r,
     r->upstream->peer.get = lounge_proxy_get_peer;
 
 	/* set maximum number of retries */
-	r->upstream->peer.tries = lmcf->lookup_table.num_peers[db_id]+1;
+	r->upstream->peer.tries = lmcf->lookup_table.num_peers[db_id];
 
     r->upstream->peer.data = lpd;
     return NGX_OK;
@@ -482,15 +492,38 @@ lounge_proxy_init_peer(ngx_http_request_t *r,
 static ngx_int_t
 lounge_proxy_get_peer(ngx_peer_connection_t *pc, void *data)
 {
-    lounge_proxy_peer_data_t 	*lpd = data;
-    ngx_peer_addr_t       		*peer;
+    lounge_proxy_peer_data_t  *lpd = data;
+	lounge_peer_t             *lp;
+    ngx_peer_addr_t           *peer;
 
     ngx_log_debug1(NGX_LOG_DEBUG_HTTP, pc->log, 0,
-                   "upstream_couch_proxy: get upstream request hash peer try %ui", pc->tries);
+                   "upstream_couch_proxy: get upstream request "
+				   "hash peer try %ui",
+				   pc->tries);
     pc->cached = 0;
     pc->connection = NULL;
 
-	peer = lpd->addrs[lpd->current_host_id];
+	int id = lpd->current_host_id;
+	lp = lpd->addrs[id];
+
+	if (lp->fail_retry_time) {
+		/* the node repeatedly failed some time previously, check if we're
+		 * past the retry timeout
+		 */
+		if (time(NULL) > lp->fail_retry_time) {
+			/* the failure was old -- try this host again */
+			lp->fail_retry_time = 0;
+		} else {
+			/* the failure was recent, just skip this host */
+			if (!--pc->tries) {
+				/* we have no more hosts to try!  fail. */
+				return NGX_ERROR;
+			}
+			lp = lpd->addrs[++lpd->current_host_id];
+		}
+	}
+
+	peer = &lp->peer;
     pc->sockaddr = peer->sockaddr;
     pc->socklen = peer->socklen;
     pc->name = &peer->name;
@@ -503,16 +536,40 @@ lounge_proxy_free_peer(ngx_peer_connection_t *pc, void *data,
     ngx_uint_t state)
 {
     lounge_proxy_peer_data_t  *lpd = data;
+	lounge_peer_t             *lp;
 
     ngx_log_debug1(NGX_LOG_DEBUG_HTTP, pc->log, 0, 
             "upstream_couch_proxy: free upstream hash peer try %u", pc->tries);
 
-    if (state & (NGX_PEER_FAILED | NGX_PEER_NEXT)
-            && --pc->tries)
+	ngx_uint_t id = lpd->current_host_id;
+	lp = lpd->addrs[id];
+    if (state & (NGX_PEER_FAILED | NGX_PEER_NEXT) 
+			&& --pc->tries)
     {
-		/* okay, our previous host failed, try the next one */
+		/* if this host has failed 10 times in a row, mark the time when we 
+		 * should retry it
+		 */
+		if (++lp->fail_count > 10) {
+			/* every time we fail, wait 30s more */
+			int retry_timeout = (lp->fail_count - 10) * 30;
+			retry_timeout = retry_timeout < FAILED_NODE_MAX_RETRY ?
+				retry_timeout : FAILED_NODE_MAX_RETRY;
+			lp->fail_retry_time = time(NULL) + retry_timeout;
+
+			ngx_log_error(NGX_LOG_ALERT, pc->log, 0,
+					"[%s] host %V failed %d times, removed for %d seconds",
+					__FUNCTION__, &lp->peer.name, lp->fail_count,
+					retry_timeout);
+		}
 		lpd->current_host_id++;
-    }
+    } else {
+		/* proxy attempt was successful -- if there was a fail count, 
+		 * decrement it
+		 */
+		if (lp->fail_count) {
+			lp->fail_count--;
+		}
+	}
 }
 
 static char *
