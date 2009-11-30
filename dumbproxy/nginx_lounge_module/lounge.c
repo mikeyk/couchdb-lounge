@@ -163,6 +163,7 @@ lounge_handler(ngx_http_request_t *r)
 		ngx_http_set_ctx(r, ctx, lounge_module);
 	}
 
+	/* we've already seen this request and rewritten the uri */
 	if (ctx->uri_sharded) return NGX_DECLINED;
 
 	/* copy the uri so we can have a null-terminated uri, letting us
@@ -224,15 +225,21 @@ lounge_handler(ngx_http_request_t *r)
 		return NGX_ERROR;
 	}
 
-	/* Set a variety of flags to tell nginx that we've modified the uri */
-	/* okay I was just setting shit because I didn't know which flag actually
-	 * made nginx use the modified uri
+	/* setting these flags to zero prevents nginx from re-escaping the uri
+	 * (e.g. %2F ==> %252F)
 	 */
 	r->internal = 0;
-	r->valid_unparsed_uri = 0;
-	r->uri_changed = 1;
 	r->quoted_uri = 0;
 
+	/* these flags indicate that we have a new uri and need to run it through
+	 * the location phase chain again
+	 */
+	r->valid_unparsed_uri = 0;
+	r->uri_changed = 1;
+
+	/* this flag tells us we've already seen this request and rewritten the
+	 * sharded uri
+	 */
 	ctx->uri_sharded = 1;
 
     return NGX_OK;
