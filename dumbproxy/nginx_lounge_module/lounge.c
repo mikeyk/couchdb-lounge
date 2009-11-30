@@ -34,6 +34,11 @@ typedef struct {
 } lounge_loc_conf_t;
 
 typedef struct {
+	ngx_uint_t uri_sharded;
+	int        shard_id;
+} lounge_req_ctx_t;
+
+typedef struct {
 	ngx_peer_addr_t      peer;
 	time_t               fail_retry_time;
 	ngx_uint_t           fail_count;
@@ -136,38 +141,40 @@ ngx_module_t lounge_module = {
 static ngx_int_t
 lounge_handler(ngx_http_request_t *r)
 {
-	const size_t 			buffer_size = 1024;
-	lounge_main_conf_t 		*lmcf;
-    lounge_loc_conf_t  		*rlcf;
-	int 					shard_id, n;
-	char 					db[buffer_size], key[buffer_size], extra[buffer_size];
-	u_char 					*uri;
+	const size_t        buffer_size = 1024;
+	lounge_main_conf_t *lmcf;
+    lounge_loc_conf_t  *rlcf;
+	lounge_req_ctx_t   *ctx;
+	int                 shard_id, n;
+	char                db[buffer_size], 
+	                    key[buffer_size], 
+	                    extra[buffer_size];
+	u_char             *uri;
 
     rlcf = ngx_http_get_module_loc_conf(r, lounge_module);
 	if (!rlcf->enabled) {
 		return NGX_DECLINED;
 	}
 
+	ctx = ngx_http_get_module_ctx(r, lounge_module);
+	if (!ctx) {
+		ctx = ngx_pcalloc(r->pool, sizeof(lounge_req_ctx_t));
+		if (!ctx) return NGX_ERROR;
+		ngx_http_set_ctx(r, ctx, lounge_module);
+	}
+
+	if (ctx->uri_sharded) return NGX_DECLINED;
+
 	/* copy the uri so we can have a null-terminated uri, letting us
 	 * use sscanf with worrying about length*/
-	uri = ngx_pcalloc(r->pool, r->uri.len+1);
-	ngx_memcpy(uri, r->uri.data, r->uri.len); 
-
-	/* we can't handle databases with numbers in the name.  The init_peer 
-	 * function will get confused when it tries to extract the shard id from
-	 * the uri.
-	 * TODO: store the shard id in the request's context rather than depending
-	 * on the proxy uri -- this is better all around
-	 */
-	n = sscanf((char*)uri, "/%1024[^0-9/]%d/%1024[^?]", db, &shard_id, key);
-	if (n == 3) {
-		return NGX_DECLINED;
-	}
+	uri = ngx_pcalloc(r->pool, r->unparsed_uri.len+1);
+	ngx_memcpy(uri, r->unparsed_uri.data, r->unparsed_uri.len); 
 
 	lmcf = ngx_http_get_module_main_conf(r, lounge_module);
 
 	ngx_log_debug2(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
-			"r->uri.data: %s, r->uri.len: %d", r->uri.data, r->uri.len);
+			"r->unparsed_uri.data: %s, r->unparsed_uri.len: %d", 
+			r->unparsed_uri.data, r->unparsed_uri.len);
 	
 	/* We're expecting a URI that looks something like:
 	 * /<DATABASE>/<KEY>[/<ATTACHMENT>][?<QUERYSTRING>]
@@ -186,27 +193,31 @@ lounge_handler(ngx_http_request_t *r)
 	}
 
 	/* allocate some space for the new uri */
-	size_t new_uri_len = r->uri.len + 5;  /* this gives room for up to 5 digits to mark the shard id */
+	size_t new_uri_len = r->unparsed_uri.len + 5;  /* this gives room for up to 5 digits to mark the shard id */
 	r->uri.data = ngx_pcalloc(r->pool, new_uri_len);
 	if (!r->uri.data) {
 		return NGX_ERROR;
 	}
 
 	/* hash the key to figure out which db shard it lives on */
-	ngx_uint_t crc32 = (ngx_crc32_short((u_char *)key, strlen(key)) >> 16) & 0x7fff;
+	ngx_uint_t crc32 = (ngx_crc32_short((u_char *)key, 
+				strlen(key)) >> 16) & 0x7fff;
 	shard_id = crc32 % lmcf->num_shards;
+	ctx->shard_id = shard_id;
 
 	if (n == 2) {
 		/* uri was of the form:
 		 * /<DATABASE>/<KEY>
 		 */
-		r->uri.len = snprintf((char*)r->uri.data, new_uri_len, "/%s%d/%s", db, shard_id, key);
+		r->uri.len = snprintf((char*)r->uri.data, 
+				new_uri_len, "/%s%d/%s", db, shard_id, key);
 	} else if (n == 3) {
 		/* uri was either:
 		 * /<DATABASE>/<KEY>/<ATTACHMENT>
 		 * /<DATABASE>/<KEY><QUERYSTRING>
 		 */
-		r->uri.len = snprintf((char*)r->uri.data, new_uri_len, "/%s%d/%s%s", db, shard_id, key, extra);
+		r->uri.len = snprintf((char*)r->uri.data, 
+				new_uri_len, "/%s%d/%s%s", db, shard_id, key, extra);
 	}
 
 	if (r->uri.len >= new_uri_len) {
@@ -214,9 +225,15 @@ lounge_handler(ngx_http_request_t *r)
 	}
 
 	/* Set a variety of flags to tell nginx that we've modified the uri */
-	r->internal = 1;
+	/* okay I was just setting shit because I didn't know which flag actually
+	 * made nginx use the modified uri
+	 */
+	r->internal = 0;
 	r->valid_unparsed_uri = 0;
 	r->uri_changed = 1;
+	r->quoted_uri = 0;
+
+	ctx->uri_sharded = 1;
 
     return NGX_OK;
 }
@@ -451,7 +468,11 @@ lounge_proxy_init_peer(ngx_http_request_t *r,
 {
     lounge_proxy_peer_data_t     	*lpd;
 	lounge_main_conf_t 				*lmcf;	
+	lounge_req_ctx_t 				*ctx;
 	u_char *uri;
+
+	ctx = ngx_http_get_module_ctx(r, lounge_module);
+	if (!ctx) return NGX_ERROR;
 
 	lmcf = ngx_http_get_module_main_conf(r, lounge_module);
 	if (!lmcf) {
@@ -463,21 +484,7 @@ lounge_proxy_init_peer(ngx_http_request_t *r,
         return NGX_ERROR;
     }
 
-	/* Extract and save the database ID */
-	int db_id;
-
-	uri = ngx_pcalloc(r->pool, r->uri.len+1);
-	ngx_memcpy(uri, r->uri.data, r->uri.len);
-	int n = sscanf((char*)uri, "/%*[^/0-9]%d/", &db_id);
-	if (n < 1) {
-		ngx_log_debug1(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
-				"couch proxy couldn't find a db id in this uri: %V", &r->uri);
-		return NGX_ERROR;
-	}
-	ngx_log_debug1(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
-			"db_id: %d", db_id);
-
-	lpd->shard_id = db_id;
+	lpd->shard_id = ctx->shard_id;
 	lpd->current_host_id = 0;
 
 	lpd->addrs = lmcf->lookup_table.shard_id_peers[lpd->shard_id];
@@ -488,7 +495,7 @@ lounge_proxy_init_peer(ngx_http_request_t *r,
     r->upstream->peer.get = lounge_proxy_get_peer;
 
 	/* set maximum number of retries */
-	r->upstream->peer.tries = lmcf->lookup_table.num_peers[db_id];
+	r->upstream->peer.tries = lmcf->lookup_table.num_peers[lpd->shard_id];
 
     r->upstream->peer.data = lpd;
     return NGX_OK;
