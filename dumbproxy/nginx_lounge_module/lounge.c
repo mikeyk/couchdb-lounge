@@ -153,6 +153,12 @@ lounge_handler(ngx_http_request_t *r)
 	uri = ngx_pcalloc(r->pool, r->uri.len+1);
 	ngx_memcpy(uri, r->uri.data, r->uri.len); 
 
+	/* we can't handle databases with numbers in the name.  The init_peer 
+	 * function will get confused when it tries to extract the shard id from
+	 * the uri.
+	 * TODO: store the shard id in the request's context rather than depending
+	 * on the proxy uri -- this is better all around
+	 */
 	n = sscanf((char*)uri, "/%1024[^0-9/]%d/%1024[^?]", db, &shard_id, key);
 	if (n == 3) {
 		return NGX_DECLINED;
