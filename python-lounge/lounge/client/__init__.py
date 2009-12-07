@@ -483,6 +483,27 @@ class DesignDoc(Document):
 	def url(self):
 		return db_connectinfo + self._db_name + '/' + self._key
 
+class TuplyDict(object):
+	def __init__(self, row_dict):
+		self._dict = row_dict
+		
+	def __contains__(self, item):
+		return (item == 0) or (item == 1) or item in self._dict
+	
+	def __getitem__(self, key):
+		if key == 0:
+			return self._dict['key']
+		elif key == 1:
+			return self._dict['value']
+		else:
+			return self._dict[key]
+			
+	def __cmp__(self, obj):
+		if isinstance(obj, tuple):
+			return cmp((self._dict['key'], self._dict['value']), obj)
+		else:
+			return cmp(self._dict, obj._dict)
+
 class View(Resource):
 	def __init__(self, db_name):
 		Resource.__init__(self)

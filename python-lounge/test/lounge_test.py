@@ -239,6 +239,70 @@ class LoungeTestCase(TestCase):
 		# existing records do have a _rev
 		assert '_rev' in x._rec
 		assert x.cheese=='good'
+		
+	def testIncludeDocs(self):
+		"""Create and run a permanent view with include_docs."""
+		DesignDoc.create("pytest", "test", language="javascript", views={"test1": {"map": "(function (doc) {if (doc.x == 1) {emit(doc._id, doc.y);}})"}})
+
+		# while waiting for the design doc to sync, insert some records.
+		TestDoc.create("a", x=1, y=1)
+		TestDoc.create("b", x=2, y=2)
+		TestDoc.create("c", x=1, y=3)
+		TestDoc.create("d", x=2, y=4)
+		TestDoc.create("e", x=1, y=5)
+
+		# wait up to 30 seconds for sync.  if it goes 30 seconds, there is a 
+		# problem with replication
+		tries = 0
+		view = None
+		while view is None:
+			tries += 1
+			assert tries<30, "Design document never replicated after 30+ seconds."
+			try:
+				view = View.execute('pytest', 'test/test1', args={"include_docs":True})
+			except NotFound:
+				view = None
+				time.sleep(1)
+
+		assert view.total_rows==3
+		assert view.rows[0]==("a", 1)
+		assert view.rows[1]==("c", 3)
+		assert view.rows[2]==("e", 5)
+
+		assert "doc" in view.rows[0]
+		assert view.rows[0]['doc']['y'] == 1
+		assert "doc" in view.rows[1]
+		assert view.rows[1]['doc']['y'] == 3
+		assert "doc" in view.rows[2]
+		assert view.rows[2]['doc']['y'] == 5
+
+		# test slicing a view
+		view = View.execute('pytest', 'test/test1', args={'startkey': 'c', 'endkey': 'e'})
+		assert view.total_rows==3
+		assert len(view.rows)==2
+		assert view.rows[0]==("c", 3)
+		assert view.rows[1]==("e", 5)
+
+		# test fetching a single key
+		view = View.execute('pytest', 'test/test1', args={'key': 'a'})
+		assert view.total_rows==3
+		assert len(view.rows)==1
+		assert view.rows[0]==("a", 1)
+
+		# update a doc to add a new row to the
+		doc_d = TestDoc.find("d")
+		doc_d.x = 1
+		doc_d.save()
+
+		view = View.execute('pytest', 'test/test1', args={'startkey': 'c', 'endkey': 'e'})
+		assert view.total_rows==4
+		assert len(view.rows)==3
+		assert view.rows[0]==("c", 3)
+		assert view.rows[1]==("d", 4)
+		assert view.rows[2]==("e", 5)
+
+		for k in ['a','b','c','d','e']:
+			TestDoc.find(k).destroy()
 	
 	def testDefaults(self):
 		class DefDoc(Document):
