@@ -219,12 +219,7 @@ class Resource(object):
 
 		if self._responsecode>=400:
 			raise LoungeError.make(self._responsecode, self._key)
-		try:
-			rv = cjson.decode(rv)
-		except cjson.DecodeError:
-			# if it's not valid json, return a string
-			pass
-		return rv
+		return self._decode(rv, headers)
 	
 	### basic REST operations
 	def get(self, args=None):
