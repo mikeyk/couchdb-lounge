@@ -486,18 +486,26 @@ class TuplyDict(object):
 		return (item == 0) or (item == 1) or item in self._dict
 	
 	def __getitem__(self, key):
-		if key == 0:
-			return self._dict['key']
-		elif key == 1:
-			return self._dict['value']
+		if key == 0 or key == 1:
+			return self._keyvalue[key]
 		else:
 			return self._dict[key]
 			
 	def __cmp__(self, obj):
 		if isinstance(obj, tuple):
-			return cmp((self._dict['key'], self._dict['value']), obj)
+			return cmp(self._keyvalue, obj)
 		else:
 			return cmp(self._dict, obj._dict)
+				
+	def __iter__(self):
+		""" We only iterate over the fake key,value tuple,
+		 	for backwards compatibility
+		"""
+		return self._keyvalue.__iter__()
+		
+	@property
+	def _keyvalue(self):
+		return (self._dict['key'], self._dict['value'])
 
 class View(Resource):
 	def __init__(self, db_name):
