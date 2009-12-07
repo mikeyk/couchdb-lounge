@@ -535,7 +535,7 @@ class View(Resource):
 		#this behaviour is used in TempView below
 		inst._rec = kwargs
 		inst._rec = inst.get_results(args)
-		inst._rec['rows'] = [TupleyDict(row) for row in inst._rec['rows']]
+		inst._rec['rows'] = [(row['key'], row['value']) for row in inst._rec['rows']]
 		return inst
 
 	def get_results(self, args):
