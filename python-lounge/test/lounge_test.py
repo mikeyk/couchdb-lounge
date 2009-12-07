@@ -386,7 +386,8 @@ class LoungeTestCase(TestCase):
 							 (min_length, 5),
 							 (max_length, 7))
 
-			validate_isint = is_int('isint')
+			validate_isint = is_type('isint', int)
+			validate_isfloat = is_type('isfloat', float)
 			validate_int_min = min_int('int_min', 5)
 			validate_int_max = max_int('int_max', 5)
 			validate_int_minmax = ensure_all('int_minmax',
@@ -481,7 +482,23 @@ class LoungeTestCase(TestCase):
 		assert not a.validate()
 		assert a.errors_for('isint')
 		
+		a.isint = 1.5
+		assert not a.validate()
+		assert a.errors_for('isint')
+
 		a.isint = 5
+		assert a.validate()
+		assert not a._errors
+
+		a.isfloat = 'hello'
+		assert not a.validate()
+		assert a.errors_for('isfloat')
+		
+		a.isfloat = 5
+		assert not a.validate()
+		assert a.errors_for('isfloat')
+
+		a.isfloat = 1.5
 		assert a.validate()
 		assert not a._errors
 

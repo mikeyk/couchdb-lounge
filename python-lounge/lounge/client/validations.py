@@ -15,14 +15,11 @@ def min_length(attr, min, msg=None):
 
 	return test(attr, lambda x: len(x) >= min, msg)
 
-def is_int(attr, msg=None):
+def is_type(attr, typ, msg=None):
 	def f(x):
-		try:
-			int(x)
-		except:
-			return False
-		return True
-
+		return isinstance(x, typ)
+	if msg is None:
+		msg = 'type of %s must be %s' % (attr, typ.__name__)
 	return test(attr, f, msg)
 
 def max_int(attr, max, msg=None):
