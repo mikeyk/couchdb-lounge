@@ -2,10 +2,9 @@
 %define couchdb_user couchdb
 %define couchdb_group couchdb
 %define couchdb_home %{_localstatedir}/lib/couchdb
-%define lounge_release 1
 Name:           couchdb
-Version:        0.10.0
-Release:        1%{?dist}.lounge%{lounge_release}
+Version:        0.10.1
+Release:        1%{?dist}.lounge1
 Summary:        A document database server, accessible via a RESTful JSON API
 
 Group:          Applications/Databases
@@ -13,6 +12,8 @@ License:        ASL 2.0
 URL:            http://couchdb.apache.org/
 Source0:        http://www.apache.org/dist/%{name}/%{version}/%{tarname}-%{version}.tar.gz
 Source1:        %{name}.init
+Patch0:         %{name}-%{version}-initenabled.patch
+Patch1:         %{name}-%{version}-designreplication.patch
 BuildRoot:      %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 
 BuildRequires:  erlang
@@ -33,8 +34,6 @@ Requires(preun): chkconfig initscripts
 # Users and groups
 Requires(pre): shadow-utils
 
-# Design-only replication patch
-Patch0: ../couchdb/designonly_replication-%{version}.patch
 
 %description
 Apache CouchDB is a distributed, fault-tolerant and schema-free 
@@ -46,11 +45,13 @@ JavaScript acting as the default view definition language.
 
 %prep
 %setup -q -n %{tarname}-%{version}
+%patch0 -p1 -b .initenabled
+%patch1 -p1 -b .designreplication
 # Patch pid location
 #sed -i 's/%localstatedir%\/run\/couchdb.pid/%localstatedir%\/run\/couchdb\/couchdb.pid/g' \
 #bin/couchdb.tpl.in
 
-%patch0
+
 
 %build
 %configure
@@ -126,7 +127,7 @@ fi
 %dir %{_sysconfdir}/couchdb
 %dir %{_sysconfdir}/couchdb/local.d
 %dir %{_sysconfdir}/couchdb/default.d
-%config(noreplace) %attr(0644, %{couchdb_user}, root) %{_sysconfdir}/couchdb/default.ini
+%attr(0644, %{couchdb_user}, root) %{_sysconfdir}/couchdb/default.ini
 %config(noreplace) %attr(0644, %{couchdb_user}, root) %{_sysconfdir}/couchdb/local.ini
 #%config(noreplace) %{_sysconfdir}/default/couchdb
 %config(noreplace) %{_sysconfdir}/sysconfig/couchdb
@@ -142,6 +143,13 @@ fi
 %dir %attr(0755, %{couchdb_user}, root) %{_localstatedir}/lib/couchdb
 
 %changelog
+* Thu Dec 03 2009 Randall Leeds <randall.leeds@gmail.com> 0.10.1-1
+- Update to 0.10.1
+- Remove %config(noreplace) from default.ini
+
+* Thu Oct 15 2009 Allisson Azevedo <allisson@gmail.com> 0.10.0-2
+- Added patch to force init_enabled=true in configure.ac.
+
 * Thu Oct 15 2009 Allisson Azevedo <allisson@gmail.com> 0.10.0-1
 - Update to 0.10.0.
 
@@ -151,6 +159,9 @@ fi
 * Thu Jul 30 2009 Allisson Azevedo <allisson@gmail.com> 0.9.1-1
 - Update to 0.9.1.
 - Drop couchdb-0.9.0-pid.patch.
+
+* Fri Jul 24 2009 Fedora Release Engineering <rel-eng@lists.fedoraproject.org> - 0.9.0-3
+- Rebuilt for https://fedoraproject.org/wiki/Fedora_12_Mass_Rebuild
 
 * Tue Apr 21 2009 Allisson Azevedo <allisson@gmail.com> 0.9.0-2
 - Fix permission for ini files.
