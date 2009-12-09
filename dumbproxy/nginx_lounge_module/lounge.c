@@ -476,7 +476,6 @@ lounge_proxy_init_peer(ngx_http_request_t *r,
     lounge_proxy_peer_data_t     	*lpd;
 	lounge_main_conf_t 				*lmcf;	
 	lounge_req_ctx_t 				*ctx;
-	u_char *uri;
 
 	ctx = ngx_http_get_module_ctx(r, lounge_module);
 	if (!ctx) return NGX_ERROR;
