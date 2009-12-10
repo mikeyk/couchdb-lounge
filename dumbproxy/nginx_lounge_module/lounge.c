@@ -150,6 +150,8 @@ lounge_handler(ngx_http_request_t *r)
 	                    key[buffer_size], 
 	                    extra[buffer_size];
 	u_char             *uri;
+	int                 uri_len;
+	u_char             *args_begin;
 
     rlcf = ngx_http_get_module_loc_conf(r, lounge_module);
 	if (!rlcf->enabled) {
@@ -166,16 +168,25 @@ lounge_handler(ngx_http_request_t *r)
 	/* we've already seen this request and rewritten the uri */
 	if (ctx->uri_sharded) return NGX_DECLINED;
 
+	args_begin = ngx_strlchr(r->unparsed_uri.data, 
+			r->unparsed_uri.data + r->unparsed_uri.len,
+			'?');
+	if (args_begin) {
+		uri_len = args_begin - r->unparsed_uri.data;
+	} else {
+		uri_len = r->unparsed_uri.len;
+	}
+
 	/* copy the uri so we can have a null-terminated uri, letting us
 	 * use sscanf with worrying about length*/
-	uri = ngx_pcalloc(r->pool, r->unparsed_uri.len+1);
-	ngx_memcpy(uri, r->unparsed_uri.data, r->unparsed_uri.len); 
+	uri = ngx_pcalloc(r->pool, uri_len+1);
+	ngx_memcpy(uri, r->unparsed_uri.data, uri_len); 
 
 	lmcf = ngx_http_get_module_main_conf(r, lounge_module);
 
 	ngx_log_debug2(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
 			"r->unparsed_uri.data: %s, r->unparsed_uri.len: %d", 
-			r->unparsed_uri.data, r->unparsed_uri.len);
+			r->unparsed_uri.data, uri_len);
 	
 	/* We're expecting a URI that looks something like:
 	 * /<DATABASE>/<KEY>[/<ATTACHMENT>][?<QUERYSTRING>]
@@ -194,7 +205,7 @@ lounge_handler(ngx_http_request_t *r)
 	}
 
 	/* allocate some space for the new uri */
-	size_t new_uri_len = r->unparsed_uri.len + 5;  /* this gives room for up to 5 digits to mark the shard id */
+	size_t new_uri_len = uri_len + 5;  /* this gives room for up to 5 digits to mark the shard id */
 	r->uri.data = ngx_pcalloc(r->pool, new_uri_len);
 	if (!r->uri.data) {
 		return NGX_ERROR;
