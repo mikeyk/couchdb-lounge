@@ -1,3 +1,5 @@
+.PHONY: all clean install dumbproxy tags
+
 all: dumbproxy
 
 clean:
