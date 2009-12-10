@@ -219,12 +219,7 @@ class Resource(object):
 
 		if self._responsecode>=400:
 			raise LoungeError.make(self._responsecode, self._key)
-		try:
-			rv = cjson.decode(rv)
-		except cjson.DecodeError:
-			# if it's not valid json, return a string
-			pass
-		return rv
+		return self._decode(rv, headers)
 	
 	### basic REST operations
 	def get(self, args=None):
@@ -483,6 +478,35 @@ class DesignDoc(Document):
 	def url(self):
 		return db_connectinfo + self._db_name + '/' + self._key
 
+class TuplyDict(object):
+	def __init__(self, row_dict):
+		self._dict = row_dict
+		
+	def __contains__(self, item):
+		return (item == 0) or (item == 1) or item in self._dict
+	
+	def __getitem__(self, key):
+		if key == 0 or key == 1:
+			return self._keyvalue[key]
+		else:
+			return self._dict[key]
+			
+	def __cmp__(self, obj):
+		if isinstance(obj, tuple):
+			return cmp(self._keyvalue, obj)
+		else:
+			return cmp(self._dict, obj._dict)
+				
+	def __iter__(self):
+		""" We only iterate over the fake key,value tuple,
+		 	for backwards compatibility
+		"""
+		return self._keyvalue.__iter__()
+		
+	@property
+	def _keyvalue(self):
+		return (self._dict['key'], self._dict['value'])
+
 class View(Resource):
 	def __init__(self, db_name):
 		Resource.__init__(self)
@@ -514,7 +538,7 @@ class View(Resource):
 		#this behaviour is used in TempView below
 		inst._rec = kwargs
 		inst._rec = inst.get_results(args)
-		inst._rec['rows'] = [(row['key'], row['value']) for row in inst._rec['rows']]
+		inst._rec['rows'] = [TuplyDict(row) for row in inst._rec['rows']]
 		return inst
 
 	def get_results(self, args):
