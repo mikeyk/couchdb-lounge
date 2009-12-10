@@ -3,7 +3,7 @@
 # chkconfig: 3 90 14
 # Source function library.
 
-pidfile=/var/run/pid/nginx-lounge.pid
+pidfile=/var/run/nginx-lounge.pid
 
 if [ -f /etc/rc.d/init.d/functions ]; then
 	. /etc/rc.d/init.d/functions
@@ -38,9 +38,6 @@ case "$1" in
 	;;
     stop)
 	stop
-	;;
-	status)
-	status opinmindd.py
 	;;
     restart)
 	stop
