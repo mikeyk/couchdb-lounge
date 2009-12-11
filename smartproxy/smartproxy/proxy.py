@@ -16,6 +16,7 @@ import atexit
 import cjson
 import cPickle
 import copy
+import itertools
 import lounge
 import os
 import random
@@ -229,7 +230,7 @@ class HTTPProxy(resource.Resource):
 		uri = request.uri[1:]
 		db, req = uri.split('/', 1)
 		shards = self.conf_data.shards(db)
-		reducer = Reducer(reduce_fn, len(shards), {}, deferred, self.reduce_queue, self.prefs)
+		reducer = Reducer(reduce_fn, len(shards), {}, deferred, self.reduce_queue)
 
 		failed = False
 		for shard in shards:
@@ -271,37 +272,16 @@ class HTTPProxy(resource.Resource):
 		#  new:  http://host:5984/db/_design/designname/_view/viewname
 
 		# build the query string to send to shard requests
-		strip_params = ['skip'] # handled by smartproxy, do not pass
+		strip_params = ['skip'] # handled by smartproxy, do not pass to upstream nodes
 		if 'skip' in request.args:
-			strip_params.append('limit') # damn, have to handle limit in smartproxy -- SLOW!!!
+			strip_params.append('limit') # have to handle limit in smartproxy -- SLOW!!!
 		args = dict([(k,v) for k,v in request.args.iteritems() if k.lower() not in strip_params])
 		qs = urllib.urlencode([(k,v) for k in args for v in args[k]] or '')
 		if qs: qs = '?' + qs
 
+		# get the urls for the shard primary replicas
 		primary_urls = [self._rewrite_url("/".join([host, design_doc])) for host in self.conf_data.primary_shards(database)]
-
-		uri = request.path.split("/",2)[2] + qs
-
-		# check if this uri is cacheable
-		request.cache = None
-		request.cache_only = False
-		cached_result = None
-		for pattern, cachetime in self.cacheable:
-			if pattern.match(request.uri):
-				request.cache = self.cache
-				# if so see if it matches something in the cache
-				if request.uri in self.cache:
-					cached_at, response = self.cache[request.uri]
-					# if so see if it is yet to expire
-					now = time.time()
-					log.debug("Using cached copy of " + request.uri)
-					cached_result = response
-					# if the cache has expired and we don't already have a request for this uri running,
-					# we set the cache_only flag, otherwise we just return what's in the cache.
-					if should_regenerate(now, cached_at, cachetime) and not request.uri in self.in_progress:
-						request.cache_only = True
-					else:
-						return cached_result
+		view_uri = request.path.split("/",2)[2] + qs
 
 		#if we're already processing a request for this uri, just append this
 		#request to the list -- it will be handled with the results from 
@@ -313,34 +293,30 @@ class HTTPProxy(resource.Resource):
 		else:
 			self.in_progress[request.uri] = []
 
+		# otherwise set up a deferred to return the result
 		deferred = defer.Deferred()
-		# if the request is cacheable, save it
+
 		def send_output(s):
 			if type(s) is tuple:
-				code, headers, s = s
+				code, headers, response = s
 				for k in headers:
 					request.setHeader(k, headers[k][-1])
 
-			if request.cache is not None:
-				request.cache[request.uri] = (time.time(), s+"\n")
-			if not request.cache_only:
-				request.write(s+"\n")
-				request.finish()
+			# write the response to all requests
+			clients = itertools.chain([request], self.in_progress.pop(request.uri, []))
 
-			#check if any other requests came in for this uri while this request
-			#was being processed
-			if request.uri in self.in_progress:
-				for r in self.in_progress[request.uri]:
-					r.write(s+"\n")
-					r.finish()
-				del self.in_progress[request.uri]
+			for c in clients:
+				request.write(response+"\n")
+				request.finish()
+			return s
 		deferred.addCallback(send_output)
 
 		def handle_error(s):
+			# send the error to all requests
+			clients = itertools.chain([request], self.in_progress.pop(request.uri, []))
+
 			# if we get back some non-http response type error, we should
 			# return 500
-			if request.uri in self.in_progress:
-				del self.in_progress[request.uri]
 			if hasattr(s.value, 'status'):
 				status = int(s.value.status)
 			else:
@@ -348,17 +324,53 @@ class HTTPProxy(resource.Resource):
 			if hasattr(s.value, 'response'):
 				response = s.value.response
 			else:
+				map(lambda r: r.finish(), clients)
 				raise Exception(str(s))
-			request.setResponseCode(status)
-			request.write(response+"\n") 
-			request.finish()
+
+			for c in clients:
+				c.setResponseCode(status)
+				c.write(response+"\n") 
+				c.finish()
 		deferred.addErrback(handle_error)
 
-		r = ReduceFunctionFetcher(self.conf_data, primary_urls, database, uri, view, deferred, self.client_queue, self.reduce_queue)
+		# chain callback if the response should be cached
+		def cache_output(s):
+			self.cache[request.uri] = (time.time(), s)
+			return s
+
+		# predicate check for whether uri matches a cache configuration directive
+		def cache_pred(x):
+			pattern, cachetime = x
+			return pattern.match(request.uri)
+
+		try:
+			# don't look for cache pattern matches if stale data is not ok
+			if request.args.get('stale', 'not_ok') != 'ok':
+				raise StopIteration
+
+			# otherwise check the cache predicate against known cacheable patterns
+			match = itertools.dropwhile(lambda x: not cache_pred(x), self.cacheable)
+			pattern, cachetime = match.next() # raises StopIteration
+
+			if request.uri in self.cache:
+				cached_at, response = self.cache[request.uri]
+				# see if it is yet to expire
+				now = time.time()
+				log.debug("Using cached copy of " + request.uri)
+				cached_response = response
+				# if the cache is stale and there are no other requests for this uri,
+				# chain a callback to cache the response
+				# otherwise
+				if should_regenerate(now, cached_at, cachetime):
+					deferred.addCallback(cache_output)
+				else:
+					reactor.callLater(0, deferred, cached_response)
+					return server.NOT_DONE_YET
+		except StopIteration:
+			pass # time to make the request
+
+		r = ReduceFunctionFetcher(self.conf_data, primary_urls, database, view_uri, view, deferred, self.client_queue, self.reduce_queue)
 		r.fetch(request)
-		# we have a cached copy; we're just processing the request to replace it
-		if cached_result:
-			return cached_result
 		return server.NOT_DONE_YET
 	
 	def render_continuous_changes(self, request, database):
