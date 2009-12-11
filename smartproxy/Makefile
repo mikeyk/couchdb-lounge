@@ -1,5 +1,5 @@
 # build number, increment with each new build, reset on new version
-RELEASE = 4`rpm --eval %{?dist}`
+RELEASE = 5`rpm --eval %{?dist}`
 
 
 PY_VERSION := $(shell python -V 2>&1)
