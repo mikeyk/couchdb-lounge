@@ -20,9 +20,6 @@ import logging
 class PrefsException(Exception):
 	pass
 
-class MissingKey(PrefsException):
-	pass
-
 class InvalidPrefEntry(PrefsException):
 	pass
 
@@ -154,7 +151,7 @@ class Prefs:
 				return self.get_all_vals(curr_tree)
 			return self.get_val(curr_tree)
 		if self.no_missing_keys:
-			raise MissingKey("get_pref couldn't find the requested preference: '%s'" % pref_name)
+			raise KeyError("get_pref couldn't find the requested preference: '%s'" % pref_name)
 		else:
 			logging.warning(""" get_pref couldn't find the requested preference: '%s' -- you're not using no_missing_keys, so this isn't an error, but you should probably make sure that the preference you're looking for is correct and switch over to using no_missing_keys.  Eventually, no_missing_keys will be the default behavior and then where will you be?  You'll be at Sad Towne, my friend.  Nobody wants to go to Sad Towne.  """ % pref_name)
 		return default
