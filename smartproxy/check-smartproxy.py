@@ -38,7 +38,7 @@ def restartAndSendEmailAlert(restart, subject, msg, alertops = False):
 		time.sleep(5)
 
 	# append the last 30 lines of the smartproxyd.log to the msg:
-	log = commands.getoutput("tail -n 30 /var/lounge/log/smartproxyd.log")
+	log = commands.getoutput("tail -n 30 /var/log/lounge/smartproxyd.log")
 	msg += "\n\nsmartproxyd.log (last 30 lines):\n" + log
 	
 	server.sendmail(sender, receivers,
@@ -55,7 +55,7 @@ if os.system("/etc/init.d/smartproxyd status >& /dev/null") != 0:
 	sys.exit(1)
 
 # check whether twistd is going bananas with memory consumption:
-pid = commands.getoutput("cat /var/lounge/run/pid/smartproxyd.pid")
+pid = commands.getoutput("cat /var/run/smartproxyd.pid")
 memusage = int(commands.getoutput("grep VmRSS /proc/%s/status | awk '{ print $2 }'" % pid))
 # if memusage is > 1 gig restart and include ops in the email alert:
 if memusage > 1000000:
@@ -64,7 +64,7 @@ if memusage > 1000000:
 
 
 # get the smartproxy prefs:
-prefs = Prefs('/var/lounge/etc/smartproxy/smartproxy.xml')
+prefs = Prefs('/etc/lounge/smartproxy.xml')
 
 # call the admin script with the /check option (try 3 times before bailing):
 # set the timeout to 60 secs:
