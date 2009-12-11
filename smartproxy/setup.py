@@ -8,7 +8,7 @@ from distutils.core import setup
 import os
 
 init_files = ('/etc/init.d/', ['smartproxyd'])
-conf_files = ('/etc/lounge/', ['smartproxy.xml', 'smartproxy.tac'])
+conf_files = ('/etc/lounge/', ['smartproxy.xml', 'smartproxy.tac', 'cacheable.json.example'])
 check_files = ('/root/bin/', ['check-smartproxy.py'])
 cron_files = ('/etc/cron.d/', ['check-smartproxy'])
 cache_files = ('/var/lib/lounge/smartproxy', ['cache.dat'])

@@ -168,17 +168,6 @@ class HTTPProxy(resource.Resource):
 		self.__loadConfig()
 		self.__loadConfigCallback = task.LoopingCall(self.__loadConfig)
 		self.__loadConfigCallback.start(300)
-		# list of cacheable URI patterns
-		self.cacheable = []
-		# TODO load this from a config file
-		# cache poll responses for 15 minutes
-		self.cacheable.append((re.compile(r'^/facts/_view/polls/responses.*$'), 20*60))
-		# cache all (active, inactive) polls for 5 minutes
-		self.cacheable.append((re.compile(r'^/facts/_view/polls/all.*$'), 10*60))
-		# cache all (active, inactive) polls for 30 minutes
-		self.cacheable.append((re.compile(r'^/facts/_view/polls/active_by_category.*$'), 30*60))
-
-		self.cache_file_path = self.prefs.get_pref("/cache_file_path")
 		self._loadCache()
 		if persistCache:
 			atexit.register(self._persistCache)
@@ -208,12 +197,19 @@ class HTTPProxy(resource.Resource):
 			log.err("Failed to persist the view cache to %s" % self.cache_file_path)
 
 	def __loadConfig(self):
-		conf_file = self.prefs.get_pref("/proxy_conf")		
+		conf_file = self.prefs.get_pref("/proxy_conf")
 		mtime = os.stat(conf_file)[8]
 		if mtime <= self.__last_load_time:
 			return
 		self.__last_load_time = mtime
 		self.conf_data = lounge.ShardMap(conf_file)
+
+		try:
+			cache_conf = self.prefs.get_pref('/cacheable_file_path')
+			cacheables = cjson.decode(file(cache_conf).read())
+			self.cacheable = [(re.compile(pat), t) for pat, t in cacheables]
+		except KeyError:
+			self.cacheable = []
 
 	def render_temp_view(self, request):
 		"""Farm out a view query to all nodes and combine the results."""
@@ -338,14 +334,14 @@ class HTTPProxy(resource.Resource):
 			self.cache[request.uri] = (time.time(), s)
 			return s
 
-		# predicate check for whether uri matches a cache configuration directive
+		# predicate check for whether path matches a cache configuration pattern
 		def cache_pred(x):
 			pattern, cachetime = x
-			return pattern.match(request.uri)
+			return pattern.match(request.path)
 
 		try:
 			# don't look for cache pattern matches if stale data is not ok
-			if request.args.get('stale', 'not_ok') != 'ok':
+			if 'ok' not in request.args.get('stale', []):
 				raise StopIteration
 
 			# otherwise check the cache predicate against known cacheable patterns
@@ -356,16 +352,19 @@ class HTTPProxy(resource.Resource):
 				cached_at, response = self.cache[request.uri]
 				# see if it is yet to expire
 				now = time.time()
-				log.debug("Using cached copy of " + request.uri)
 				cached_response = response
 				# if the cache is stale and there are no other requests for this uri,
 				# chain a callback to cache the response
 				# otherwise
 				if should_regenerate(now, cached_at, cachetime):
+					log.debug("Cache of " + request.uri + " is stale. Regenerating.")
 					deferred.addCallback(cache_output)
 				else:
-					reactor.callLater(0, deferred, cached_response)
+					log.debug("Using cached copy of " + request.uri)
+					reactor.callLater(0, deferred.callback, cached_response)
 					return server.NOT_DONE_YET
+			else:
+				deferred.addCallback(cache_output)
 		except StopIteration:
 			pass # time to make the request
 
@@ -717,7 +716,7 @@ if __name__ == "__main__":
 	class HTTPProxyTestCase(unittest.TestCase):
 
 		def setUp(self):
-			self.prefs = Prefs(os.environ.get("PREFS", '/var/lounge/etc/smartproxy/smartproxy.xml'))
+			self.prefs = Prefs(os.environ.get("PREFS", '/var/lounge/etc/smartproxy/smartproxy.xml'), no_missing_keys = True)
 
 		def testCaching(self):
 			cache_file = self.prefs.get_pref("/cache_file_path")
