@@ -137,6 +137,99 @@ ngx_module_t lounge_module = {
     NGX_MODULE_V1_PADDING
 };
 
+/* This is the code from ngx_unescape_uri, but modified so that it doesn't
+ * unescape %2f and ensures that the 'f' is consistently lowercased.  This 
+ * is needed so that document name portion of the uri can contain slashes
+ * and still be hashed correctly.
+ */
+static void
+normalize_uri(u_char **dst, u_char **src, size_t size)
+{
+    u_char  *d, *s, ch, c, decoded;
+    enum {
+        sw_usual = 0,
+        sw_quoted,
+        sw_quoted_second
+    } state;
+
+    d = *dst;
+    s = *src;
+
+    state = 0;
+    decoded = 0;
+
+    while (size--) {
+
+        ch = *s++;
+
+        switch (state) {
+        case sw_usual:
+            if (ch == '%') {
+                state = sw_quoted;
+                break;
+            }
+
+            *d++ = ch;
+            break;
+
+        case sw_quoted:
+
+            if (ch >= '0' && ch <= '9') {
+                decoded = (u_char) (ch - '0');
+                state = sw_quoted_second;
+                break;
+            }
+
+            c = (u_char) (ch | 0x20);
+            if (c >= 'a' && c <= 'f') {
+                decoded = (u_char) (c - 'a' + 10);
+                state = sw_quoted_second;
+                break;
+            }
+
+            /* the invalid quoted character */
+
+            state = sw_usual;
+
+            *d++ = ch;
+
+            break;
+
+        case sw_quoted_second:
+
+            state = sw_usual;
+
+            if (ch >= '0' && ch <= '9') {
+                ch = (u_char) ((decoded << 4) + ch - '0');
+                *d++ = ch;
+                break;
+            }
+
+            c = (u_char) (ch | 0x20);
+            if (c >= 'a' && c <= 'f') {
+                ch = (u_char) ((decoded << 4) + c - 'a' + 10);
+
+				if (ch == '/') {
+                	*d++ = '%'; *d++ = '2'; *d++ = 'f';
+                	break;
+				}
+
+                *d++ = ch;
+                break;
+            }
+
+            /* the invalid quoted character */
+
+            break;
+        }
+    }
+
+done:
+
+    *dst = d;
+    *src = s;
+}
+
 
 static ngx_int_t
 lounge_handler(ngx_http_request_t *r)
@@ -149,7 +242,9 @@ lounge_handler(ngx_http_request_t *r)
 	char                db[buffer_size], 
 	                    key[buffer_size], 
 	                    extra[buffer_size];
-	u_char             *uri;
+	u_char             *uri,
+					   *uri_last,
+					   *orig_uri_last;
 	int                 uri_len;
 	u_char             *args_begin;
 
@@ -168,25 +263,23 @@ lounge_handler(ngx_http_request_t *r)
 	/* we've already seen this request and rewritten the uri */
 	if (ctx->uri_sharded) return NGX_DECLINED;
 
-	args_begin = ngx_strlchr(r->unparsed_uri.data, 
-			r->unparsed_uri.data + r->unparsed_uri.len,
-			'?');
-	if (args_begin) {
-		uri_len = args_begin - r->unparsed_uri.data;
-	} else {
-		uri_len = r->unparsed_uri.len;
-	}
+	/* allocate enough room for a null-termed uri */
+	uri = ngx_palloc(r->pool, r->unparsed_uri.len+1);
 
-	/* copy the uri so we can have a null-terminated uri, letting us
-	 * use sscanf with worrying about length*/
-	uri = ngx_pcalloc(r->pool, uri_len+1);
-	ngx_memcpy(uri, r->unparsed_uri.data, uri_len); 
+	/* unescape everything except for slashes */
+	uri_last = uri;
+	orig_uri_last = r->unparsed_uri.data;
+	normalize_uri(&uri_last, &orig_uri_last, r->unparsed_uri.len);
+	
+	/* null term so we can use sscanf */
+	*uri_last = '\0';
+	uri_len = uri_last - uri;
 
 	lmcf = ngx_http_get_module_main_conf(r, lounge_module);
 
 	ngx_log_debug2(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
 			"r->unparsed_uri.data: %s, r->unparsed_uri.len: %d", 
-			r->unparsed_uri.data, uri_len);
+			r->unparsed_uri.data, (int)r->unparsed_uri.len);
 	
 	/* We're expecting a URI that looks something like:
 	 * /<DATABASE>/<KEY>[/<ATTACHMENT>][?<QUERYSTRING>]
