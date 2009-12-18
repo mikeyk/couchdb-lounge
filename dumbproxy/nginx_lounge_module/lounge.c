@@ -224,8 +224,6 @@ normalize_uri(u_char **dst, u_char **src, size_t size)
         }
     }
 
-done:
-
     *dst = d;
     *src = s;
 }
@@ -246,7 +244,6 @@ lounge_handler(ngx_http_request_t *r)
 					   *uri_last,
 					   *orig_uri_last;
 	int                 uri_len;
-	u_char             *args_begin;
 
     rlcf = ngx_http_get_module_loc_conf(r, lounge_module);
 	if (!rlcf->enabled) {
