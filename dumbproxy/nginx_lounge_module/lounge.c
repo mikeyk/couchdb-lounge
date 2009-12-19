@@ -169,6 +169,8 @@ normalize_uri(u_char **dst, u_char **src, size_t size)
                 break;
             }
 
+			if (ch == '?') goto done;
+
             *d++ = ch;
             break;
 
@@ -223,7 +225,7 @@ normalize_uri(u_char **dst, u_char **src, size_t size)
             break;
         }
     }
-
+done:
     *dst = d;
     *src = s;
 }
