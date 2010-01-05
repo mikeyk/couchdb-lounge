@@ -121,7 +121,10 @@ def read_config_if_changed(last_read):
 	return last_read
 
 def main():
-	logging.basicConfig(filename=LOG_PATH, level=logging.DEBUG)
+	try:
+		logging.basicConfig(filename=LOG_PATH, level=logging.DEBUG)
+	except IOError:
+		pass #log to stderr
 	read_conf_at = None
 	BgReplicator().start()
 
