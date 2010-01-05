@@ -124,7 +124,8 @@ def main():
 	try:
 		logging.basicConfig(filename=LOG_PATH, level=logging.DEBUG)
 	except IOError:
-		pass #log to stderr
+		logging.warn("Cannot write to " + LOG_PATH)
+		logging.warn("Log messages will be written to stderr instead")
 	read_conf_at = None
 	BgReplicator().start()
 
