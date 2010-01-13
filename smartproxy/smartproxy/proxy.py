@@ -302,8 +302,8 @@ class HTTPProxy(resource.Resource):
 			clients = itertools.chain([request], self.in_progress.pop(request.uri, []))
 
 			for c in clients:
-				request.write(response+"\n")
-				request.finish()
+				c.write(response+"\n")
+				c.finish()
 			return s
 		deferred.addCallback(send_output)
 
