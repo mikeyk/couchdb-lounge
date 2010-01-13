@@ -133,9 +133,6 @@ class MapResultFetcher(HttpFetcher):
 	def _onsuccess(self, page):
 		self._reducer.process_map(page, self._name, self.factory.response_headers, int(self.factory.status))
 
-	def _onerror(self, data):
-		self._deferred.errback(data)
-
 	def fetch(self, request=None):
 		url = self._remaining_nodes[0]
 		headers = request and request.getAllHeaders() or {}
@@ -331,9 +328,4 @@ class ProxyFetcher(HttpFetcher):
 	def _onsuccess(self, page, *args, **kwargs):
 		self._deferred.callback((int(self.factory.status), self.factory.response_headers, page))
 
-	def _onerror(self, data):
-		log.msg("unable to fetch from node %s" % self._name)
-		data.printTraceback()
-		log.msg("traceback? : %s" % data.getTraceback())
-		self._deferred.errback(data)
 # vi: noexpandtab ts=2 sts=2 sw=2
