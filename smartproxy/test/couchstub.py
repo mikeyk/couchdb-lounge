@@ -25,6 +25,9 @@ class FakeCouchHandler(BaseHTTPRequestHandler):
     if self.command != ex.method or self.path != ex.path:
       self.server.failures.append("Wanted %s %s but got %s %s" % (ex.method, ex.path, self.command, self.path))
 
+    if ex.delay:
+      time.sleep(ex.delay)
+
     # send the mocked request
     self.send_response(ex.responsecode)
     for k in ex.responseheaders:
@@ -75,10 +78,11 @@ class Request:
     self.body = body
     self.headers = headers
 
-  def reply(self, code, body, headers={}):
+  def reply(self, code, body, headers={}, delay=0):
     self.responsecode = code
     self.responsebody = simplejson.dumps(body)
     self.responseheaders = headers
+    self.delay = delay
     if 'content-type' not in [k.lower() for k in self.responseheaders.keys()]:
       self.responseheaders['Content-type'] = 'application/json'
 
@@ -90,8 +94,8 @@ class CouchStub:
     self.expected = []
     self.stop = threading.Event()
 
-  def expect(self, method, path, body='', headers={}):
-    req = Request(method, path, body, headers)
+  def expect(self, method, path, body='', headers={}, delay=0):
+    req = Request(method, path, body, headers, delay)
     self.expected.append(req)
     return req
 
