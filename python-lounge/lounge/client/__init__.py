@@ -460,6 +460,38 @@ class Document(Resource):
 		"""
 		self._attachments.pop(name)
 
+class Changes(Resource):
+	""" Shortcut for accessing a database's _changes API
+		Use: (given a database called 'fruits')
+		changed_docs = client.Changes.find("fruits", since=[15,151,16])
+		('since' is a vector rather than a single revision when using the 
+		lounge)
+		"""
+
+	@classmethod
+	def make_key(cls, dbname, since=None):
+		cls._db_name = dbname
+		cls._since = since
+		return "_changes"
+
+	def get(self):
+		args = {}
+		if self._since: args = {'since': self._since}
+		return Resource.get(self, args)
+
+	@classmethod
+	def find(cls, dbname, since=None):
+		inst = cls()
+		inst._key = cls.make_key(dbname, since)
+		inst._rec = inst.get()
+
+		return inst
+	
+	def url(self):
+		return db_connectinfo + self._db_name + '/' + self._key
+
+	
+
 class DesignDoc(Document):
 	def __init__(self):
 		try:
