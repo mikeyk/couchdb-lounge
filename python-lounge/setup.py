@@ -7,7 +7,7 @@ py_packages = ['lounge', 'lounge.client']
 description = 'lounge python module'
 long_description = 'nice interface to lounge configuration'
 
-setup( version = '1.3.6',
+setup( version = '1.3.7',
 	   description = description,
 	   long_description = long_description,
 	   name = 'python-lounge',
