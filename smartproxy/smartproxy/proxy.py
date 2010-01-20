@@ -35,7 +35,7 @@ from twisted.protocols import basic
 from twisted.web import server, resource, client
 from twisted.python.failure import DefaultException
 
-from fetcher import HttpFetcher, MapResultFetcher, DbFetcher, DbGetter, ReduceFunctionFetcher, AllDbFetcher, ProxyFetcher, ChangesFetcher, UuidFetcher, getPageWithHeaders
+from fetcher import HttpFetcher, MapResultFetcher, DbFetcher, DbGetter, ViewFetcher, AllDbFetcher, ProxyFetcher, ChangesFetcher, UuidFetcher, getPageWithHeaders
 
 from reducer import ReduceQueue, ReducerProcessProtocol, Reducer, AllDocsReducer, ChangesReducer, ChangesMerger
 

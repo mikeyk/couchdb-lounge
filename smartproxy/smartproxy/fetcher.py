@@ -239,7 +239,7 @@ class DbGetter(DbFetcher):
 			self._acc["update_seq"] = cjson.encode(self._acc["update_seq"])
 			self._deferred.callback(self._acc)
 
-class ReduceFunctionFetcher(HttpFetcher):
+class ViewFetcher(HttpFetcher):
 	def __init__(self, config, nodes, database, uri, view, deferred, client_queue, reduce_queue):
 		HttpFetcher.__init__(self, "reduce_func", nodes, deferred, client_queue)
 		self._config = config
@@ -270,7 +270,7 @@ class ReduceFunctionFetcher(HttpFetcher):
 
 		# make sure we don't call this deferred twice (using self._failed)
 		def handle_success(data):
-			log.debug("ReduceFunctionFetcher: handle_succes")
+			log.debug("ViewFetcher: handle_succes")
 			if not self._failed:
 				self._deferred.callback(data)
 
