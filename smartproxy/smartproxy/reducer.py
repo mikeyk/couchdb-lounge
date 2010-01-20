@@ -164,7 +164,8 @@ def merge(r1, r2, compare=json_cmp, unique=False, descending=False):
 	rows2 = r2["rows"]
 	merge_fn = unique and unique_merge or dup_merge
 	if descending:
-		compare = lambda x, y: compare(y, x)
+		real_compare = compare
+		compare = lambda x, y: real_compare(y, x)
 	r1["rows"] = merge_fn(rows1, rows2, compare)
 	if "total_rows" in r2:
 		if not ("total_rows" in r1):
@@ -322,7 +323,7 @@ class Reducer:
 
 		Override this to get different reduce behaviour.
 		"""
-		inp = merge(a, b) #merge two sorted lists together
+		inp = merge(a, b, descending=self.descending) #merge two sorted lists together
 
 		if self.reduce_func:
 			args = [ (key, ["rereduce", [self.reduce_func], to_reducelist(chunk)]) for key,chunk in split_by_key(inp["rows"])]

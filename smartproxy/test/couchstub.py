@@ -94,8 +94,8 @@ class CouchStub:
     self.expected = []
     self.stop = threading.Event()
 
-  def expect(self, method, path, body='', headers={}, delay=0):
-    req = Request(method, path, body, headers, delay)
+  def expect(self, method, path, body='', headers={}):
+    req = Request(method, path, body, headers)
     self.expected.append(req)
     return req
 

@@ -7,4 +7,6 @@
 	<pref name='logfile' type='string' value='log/smartproxy.log'/>
 	<pref name='reduce_pool_size' type='int' value='32'/>
 	<pref name='client_pool_size' type='int' value='16'/>
+	<pref name='couchjs_command' type='string' value='/usr/local/bin/couchjs /usr/share/couchdb/server/main.js'/>
+	<pref name='cacheable_file_path' type='string' value='fixtures/cache.json'/>
 </pref>

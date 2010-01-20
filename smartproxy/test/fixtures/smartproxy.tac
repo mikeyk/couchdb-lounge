@@ -23,7 +23,7 @@ else:
 
 application = service.Application('smartproxy')
 
-site = server.Site(HTTPProxy(prefs, True))
+site = server.Site(HTTPProxy(prefs))
 sc = service.IServiceCollection(application)
 i = internet.TCPServer(http_port, site, interface="0.0.0.0")
 i.setServiceParent(sc)

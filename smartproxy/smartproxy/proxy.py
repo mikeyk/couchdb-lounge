@@ -152,7 +152,7 @@ def make_errback(request):
 class HTTPProxy(resource.Resource):
 	isLeaf = True
 
-	def __init__(self, prefs, persistCache=False):
+	def __init__(self, prefs):
 		"""
 		prefs is a lounge.prefs.Prefs instance
 		persistCache is a boolean -- True means an atexit handler will be
@@ -169,8 +169,6 @@ class HTTPProxy(resource.Resource):
 		self.__loadConfigCallback = task.LoopingCall(self.__loadConfig)
 		self.__loadConfigCallback.start(300)
 		self._loadCache()
-		if persistCache:
-			atexit.register(self._persistCache)
 
 		self.in_progress = {}
 
@@ -179,22 +177,7 @@ class HTTPProxy(resource.Resource):
 		Load the cache with any data we've persisted.  If we can't unpickle the
 		cache file for any reason, this will create an empty cache.
 		"""
-		try:
-			self.cache = cPickle.load(file(self.cache_file_path))
-			log.msg ("Loaded cache from %s" % self.cache_file_path)
-		except:
-			log.msg ("No cache file found -- starting with an empty cache")
-			self.cache = {}
-
-	def _persistCache(self):
-		"""
-		Pickle the cache to disk.  If we're restarting the daemon, we don't want to
-		"""
-		try:
-			cPickle.dump(self.cache, open(self.cache_file_path, 'w'))
-			log.msg ("Persisted the view cache to %s" % self.cache_file_path)
-		except:
-			log.err("Failed to persist the view cache to %s" % self.cache_file_path)
+		self.cache = {}
 
 	def __loadConfig(self):
 		conf_file = self.prefs.get_pref("/proxy_conf")
@@ -705,35 +688,5 @@ class HTTPProxy(resource.Resource):
 
 		log.debug('_rewrite_url: "%s" => "%s"' % (url, new_url))
 		return new_url
-
-
-if __name__ == "__main__":
-	from copy import deepcopy
-	import unittest
-	import os
-	from lounge.prefs import Prefs
-
-	class HTTPProxyTestCase(unittest.TestCase):
-
-		def setUp(self):
-			self.prefs = Prefs(os.environ.get("PREFS", '/var/lounge/etc/smartproxy/smartproxy.xml'), no_missing_keys = True)
-
-		def testCaching(self):
-			cache_file = self.prefs.get_pref("/cache_file_path")
-			try:
-				os.unlink(cache_file)
-				log.msg("deleted old cache file (%s)" % cache_file)
-			except:
-				pass
-
-			test_cache = {'key1':'value1', 'key2':'value2'}
-			hp = HTTPProxy(self.prefs)
-			assert (hp.cache == {})
-			hp.cache = deepcopy(test_cache)
-			hp._persistCache()
-			hp = HTTPProxy(self.prefs)
-			assert (hp.cache == test_cache)
-
-	unittest.main()
 
 # vi: noexpandtab ts=2 sw=2 sts=2

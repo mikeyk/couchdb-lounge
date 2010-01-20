@@ -252,6 +252,47 @@ class ProxyTest(TestCase):
 		self.assertEqual(resp.body["rows"][2]["key"], "c")
 		self.assertEqual(resp.body["rows"][3]["key"], "d")
 
+	def testReverse(self):
+		"""Query a view with descending=true"""
+		be1 = CouchStub()
+		be1.expect_GET("/funstuff0/_design/fun").reply(200, dict(
+			views=dict(
+				stuff=dict(
+					map="function(doc){}"
+				)
+			)))
+		be1.expect_GET("/funstuff0/_design/fun/_view/stuff?descending=true").reply(200, dict(
+			total_rows=2,
+			offset=0,
+			rows=[
+				{"id":"a", "key":"2", "value": "a"},
+				{"id":"c", "key":"1", "value": "b"}
+			]))
+		be1.listen("localhost", 23456)
+
+		be2 = CouchStub()
+		be2.expect_GET("/funstuff1/_design/fun/_view/stuff?descending=true").reply(200, dict(
+			total_rows=2,
+			offset=0,
+			rows=[
+				{"id":"x", "key":"3", "value": "c"},
+				{"id":"y", "key":"0", "value": "e"}
+			]))
+		be2.listen("localhost", 34567)
+
+		resp = get("http://localhost:22008/funstuff/_design/fun/_view/stuff?descending=true")
+
+		be1.verify()
+		be2.verify()
+
+		self.assertEqual(resp.body["total_rows"], 4)
+		self.assertEqual(resp.body["offset"], 0)
+		self.assertEqual(len(resp.body["rows"]), 4)
+		self.assertEqual(resp.body["rows"][0]["key"], "3")
+		self.assertEqual(resp.body["rows"][1]["key"], "2")
+		self.assertEqual(resp.body["rows"][2]["key"], "1")
+		self.assertEqual(resp.body["rows"][3]["key"], "0")
+
 if __name__=="__main__":
 	if os.environ.get("DEBUG",False):
 		console = logging.StreamHandler()
