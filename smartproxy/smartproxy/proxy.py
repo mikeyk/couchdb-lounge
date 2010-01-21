@@ -249,8 +249,6 @@ class HTTPProxy(resource.Resource):
 			self.in_progress[request.uri].append(request)
 			log.debug("Attaching request for %s to an earlier request for that uri" % request.uri)
 			return server.NOT_DONE_YET
-		else:
-			self.in_progress[request.uri] = []
 
 		# otherwise set up a deferred to return the result
 		deferred = defer.Deferred()
@@ -262,7 +260,7 @@ class HTTPProxy(resource.Resource):
 					request.setHeader(k, headers[k][-1])
 
 			# write the response to all requests
-			clients = itertools.chain([request], self.in_progress.pop(request.uri, []))
+			clients = self.in_progress.pop(request.uri, [])
 
 			for c in clients:
 				c.write(response+"\n")
@@ -272,7 +270,7 @@ class HTTPProxy(resource.Resource):
 
 		def handle_error(s):
 			# send the error to all requests
-			clients = itertools.chain([request], self.in_progress.pop(request.uri, []))
+			clients = self.in_progress.pop(request.uri, [])
 
 			# if we get back some non-http response type error, we should
 			# return 500
@@ -283,8 +281,7 @@ class HTTPProxy(resource.Resource):
 			if hasattr(s.value, 'response'):
 				response = s.value.response
 			else:
-				map(lambda r: r.finish(), clients)
-				raise Exception(str(s))
+				response = cjson.encode(dict(error=str(s)))
 
 			for c in clients:
 				c.setResponseCode(status)
@@ -332,7 +329,14 @@ class HTTPProxy(resource.Resource):
 			pass # time to make the request
 
 		r = ReduceFunctionFetcher(self.conf_data, primary_urls, database, view_uri, view, deferred, self.client_queue, self.reduce_queue)
-		r.fetch(request)
+		try:
+			# create a wait list for others to jump onto
+			self.in_progress[request.uri] = [request]
+			r.fetch(request)
+		except:
+			# make sure we clear this out if the fetch never happens
+			self.in_progress.pop(request.uri, None)
+		
 		return server.NOT_DONE_YET
 	
 	def render_continuous_changes(self, request, database):
