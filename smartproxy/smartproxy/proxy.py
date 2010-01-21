@@ -328,7 +328,7 @@ class HTTPProxy(resource.Resource):
 		except StopIteration:
 			pass # time to make the request
 
-		r = ReduceFunctionFetcher(self.conf_data, primary_urls, database, view_uri, view, deferred, self.client_queue, self.reduce_queue)
+		r = ViewFetcher(self.conf_data, primary_urls, database, view_uri, view, deferred, self.client_queue, self.reduce_queue)
 		try:
 			# create a wait list for others to jump onto
 			self.in_progress[request.uri] = [request]
