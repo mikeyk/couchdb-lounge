@@ -56,17 +56,9 @@ def parse_uri(uri):
 	assert _view=='_view'
 	return database, _view, document, view
 
+qsre = re.compile('([^&])+=([^&]*)(?=&|$)')
 def qsparse(qs):
-	# shouldn't this be a python standard library?
-	rv = []
-	# ''.split('&') does not return an empty list. jerk
-	if qs:
-		for pair in qs.split('&'):
-			k,v = pair.split('=')
-			k = urllib.unquote(k)
-			v = urllib.unquote(v)
-			rv.append((k,v))
-	return dict(rv)
+	return dict((map(urllib.unquote, pair.groups()) for pair in qsre.finditer(qs)))
 
 def should_regenerate(now, cached_at, cachetime):
 	age = now - cached_at
