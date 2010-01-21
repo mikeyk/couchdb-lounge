@@ -44,18 +44,6 @@ import streaming
 def normalize_header(h):
 	return '-'.join([word.capitalize() for word in h.split('-')])
 
-def parse_uri(uri):
-	query = ''
-	if uri.find('?')>=0:
-		path, query = uri.split('?',1)
-	else:
-		path = uri
-	if path[0]=='/':
-		path = path[1:]
-	database, _view, document, view = path.split('/', 3)
-	assert _view=='_view'
-	return database, _view, document, view
-
 qsre = re.compile('([^&])+=([^&]*)(?=&|$)')
 def qsparse(qs):
 	return dict((map(urllib.unquote, pair.groups()) for pair in qsre.finditer(qs)))
