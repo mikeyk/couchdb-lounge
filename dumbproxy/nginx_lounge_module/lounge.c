@@ -297,7 +297,7 @@ lounge_handler(ngx_http_request_t *r)
 	}
 
 	/* allocate some space for the new uri */
-	size_t new_uri_len = uri_len + 5;  /* this gives room for up to 5 digits to mark the shard id */
+	size_t new_uri_len = r->unparsed_uri.len + 5;  /* this gives room for up to 5 digits to mark the shard id */
 	r->uri.data = ngx_pcalloc(r->pool, new_uri_len);
 	if (!r->uri.data) {
 		return NGX_ERROR;
@@ -309,20 +309,16 @@ lounge_handler(ngx_http_request_t *r)
 	shard_id = crc32 % lmcf->num_shards;
 	ctx->shard_id = shard_id;
 
-	if (n == 2) {
-		/* uri was of the form:
-		 * /<DATABASE>/<KEY>
-		 */
-		r->uri.len = snprintf((char*)r->uri.data, 
-				new_uri_len, "/%s%d/%s", db, shard_id, key);
-	} else if (n == 3) {
-		/* uri was either:
-		 * /<DATABASE>/<KEY>/<ATTACHMENT>
-		 * /<DATABASE>/<KEY><QUERYSTRING>
-		 */
-		r->uri.len = snprintf((char*)r->uri.data, 
-				new_uri_len, "/%s%d/%s%s", db, shard_id, key, extra);
-	}
+	u_char* unparsed_key;
+	u_char* unparsed_uri_end = r->unparsed_uri.data + r->unparsed_uri.len;
+	unparsed_key = ngx_strlchr(r->unparsed_uri.data+1, unparsed_uri_end, '/');
+	if (!unparsed_key) return NGX_ERROR;
+	unparsed_key++;
+	if (unparsed_key >= unparsed_uri_end) return NGX_ERROR;
+	int unparsed_key_len = unparsed_uri_end - unparsed_key;
+
+	r->uri.len = snprintf((char*)r->uri.data, 
+			new_uri_len, "/%s%d/%.*s", db, shard_id, unparsed_key_len, unparsed_key);
 
 	if (r->uri.len >= new_uri_len) {
 		return NGX_ERROR;
