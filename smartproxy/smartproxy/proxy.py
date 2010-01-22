@@ -389,8 +389,6 @@ class HTTPProxy(resource.Resource):
 		def handle_error(s):
 			# if we get back some non-http response type error, we should
 			# return 500
-			if request.uri in self.in_progress:
-				del self.in_progress[request.uri]
 			if hasattr(s.value, 'status'):
 				status = int(s.value.status)
 			else:
