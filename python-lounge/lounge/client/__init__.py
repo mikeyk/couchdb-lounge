@@ -571,7 +571,10 @@ class View(Resource):
 		#this behaviour is used in TempView below
 		inst._rec = kwargs
 		inst._rec = inst.get_results(args)
-		inst._rec['rows'] = [TuplyDict(row) for row in inst._rec['rows']]
+		try:
+			inst._rec['rows'] = [TuplyDict(row) for row in inst._rec['rows']]
+		except TypeError:
+			raise TypeError("Expected a JSON object with 'rows' attribute, got %s" % str(inst._rec))
 		return inst
 
 	def get_results(self, args):
