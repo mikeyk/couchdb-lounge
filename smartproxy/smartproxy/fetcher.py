@@ -133,6 +133,14 @@ class MapResultFetcher(HttpFetcher):
 	def _onsuccess(self, page):
 		self._reducer.process_map(page, self._name, self.factory.response_headers, int(self.factory.status))
 
+	def _onerror(self, data, request):
+		log.msg("Unable to fetch data from node %s" % data)
+		if len(self._remaining_nodes) == 0:
+			log.msg("unable to fetch data from shard %s.  Failing" % self._name)
+			self._deferred.errback(data)
+		else:
+			self.fetch(request)
+
 	def fetch(self, request=None):
 		url = self._remaining_nodes[0]
 		self._headers = request and request.getAllHeaders() or {}
@@ -145,7 +153,8 @@ class MapResultFetcher(HttpFetcher):
 		else:
 			self.factory = getPageWithHeaders(url=url, method=method, headers=self._headers)
 		self.factory.deferred.addCallback(self._onsuccess)
-		self.factory.deferred.addErrback(self._onerror)
+		self.factory.deferred.addErrback(self._onerror, request=request)
+		
 
 class DbFetcher(HttpFetcher):
 	"""Perform an HTTP request on all shards in a database."""
