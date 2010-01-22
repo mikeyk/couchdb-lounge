@@ -253,10 +253,9 @@ class HTTPProxy(resource.Resource):
 
 		# define the callback functions
 		def send_output(s):
-			if type(s) is tuple:
-				code, headers, response = s
-				for k in headers:
-					request.setHeader(k, headers[k][-1])
+			code, headers, response = s
+			for k in headers:
+				request.setHeader(k, headers[k][-1])
 
 			# write the response to all requests
 			clients = self.in_progress.pop(request.uri, [])
@@ -285,10 +284,14 @@ class HTTPProxy(resource.Resource):
 				c.setResponseCode(status)
 				c.write(response+"\n") 
 				c.finish()
+			
+			# make sure to return the failure to skip any callbacks
+			return s
 
 		# callback to insert on the chain if the response should be cached
 		def cache_output(s):
-			if hasattr(s.value, 'status') and s.value.status == 200:
+			code, headers, response = s
+			if code == 200:
 				self.cache[request.uri] = (time.time(), s)
 			return s
 
