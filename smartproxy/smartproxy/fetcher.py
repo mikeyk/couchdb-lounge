@@ -135,15 +135,15 @@ class MapResultFetcher(HttpFetcher):
 
 	def fetch(self, request=None):
 		url = self._remaining_nodes[0]
-		headers = request and request.getAllHeaders() or {}
+		self._headers = request and request.getAllHeaders() or {}
 		method = request and request.method or 'GET'
 
 		self._remaining_nodes = self._remaining_nodes[1:]
 		if method=='POST':
 			body = request and request.content.read() or ''
-			self.factory = getPageWithHeaders(url=url, postdata=body, method=method, headers=headers)
+			self.factory = getPageWithHeaders(url=url, postdata=body, method=method, headers=self._headers)
 		else:
-			self.factory = getPageWithHeaders(url=url, method=method, headers=headers)
+			self.factory = getPageWithHeaders(url=url, method=method, headers=self._headers)
 		self.factory.deferred.addCallback(self._onsuccess)
 		self.factory.deferred.addErrback(self._onerror)
 
