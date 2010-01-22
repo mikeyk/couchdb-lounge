@@ -248,11 +248,10 @@ class HTTPProxy(resource.Resource):
 		if request.uri in self.in_progress:
 			self.in_progress[request.uri].append(request)
 			log.debug("Attaching request for %s to an earlier request for that uri" % request.uri)
-			return server.NOT_DONE_YET
+		else:
+			self.in_progress[request.uri] = [request]
 
-		# otherwise set up a deferred to return the result
-		deferred = defer.Deferred()
-
+		# define the callback functions
 		def send_output(s):
 			if type(s) is tuple:
 				code, headers, response = s
@@ -266,7 +265,6 @@ class HTTPProxy(resource.Resource):
 				c.write(response+"\n")
 				c.finish()
 			return s
-		deferred.addCallback(send_output)
 
 		def handle_error(s):
 			# send the error to all requests
@@ -287,17 +285,20 @@ class HTTPProxy(resource.Resource):
 				c.setResponseCode(status)
 				c.write(response+"\n") 
 				c.finish()
-		deferred.addErrback(handle_error)
 
-		# chain callback if the response should be cached
+		# callback to insert on the chain if the response should be cached
 		def cache_output(s):
-			self.cache[request.uri] = (time.time(), s)
+			if hasattr(s.value, 'status') and s.value.status == 200:
+				self.cache[request.uri] = (time.time(), s)
 			return s
 
 		# predicate check for whether path matches a cache configuration pattern
 		def cache_pred(x):
 			pattern, cachetime = x
 			return pattern.match(request.path)
+
+		# create the deferred object to hold the callbacks
+		deferred = defer.Deferred()
 
 		try:
 			# don't look for cache pattern matches if stale data is not ok
@@ -308,33 +309,36 @@ class HTTPProxy(resource.Resource):
 			match = itertools.dropwhile(lambda x: not cache_pred(x), self.cacheable)
 			pattern, cachetime = match.next() # raises StopIteration
 
+			# if there is a cached response, check if it should be regenerated
+			# and send the cached response no matter what
 			if request.uri in self.cache:
 				cached_at, response = self.cache[request.uri]
 				# see if it is yet to expire
 				now = time.time()
 				cached_response = response
+
+				# send the cached copy back to the client synchronously
+				log.debug("Using cached copy of " + request.uri)
+				send_output(response)
+
 				# if the cache is stale and there are no other requests for this uri,
-				# chain a callback to cache the response
-				# otherwise
+				# set a callback to cache the response when we fetch it
 				if should_regenerate(now, cached_at, cachetime):
 					log.debug("Cache of " + request.uri + " is stale. Regenerating.")
 					deferred.addCallback(cache_output)
 				else:
-					log.debug("Using cached copy of " + request.uri)
-					reactor.callLater(0, deferred.callback, cached_response)
 					return server.NOT_DONE_YET
 			else:
 				deferred.addCallback(cache_output)
+				deferred.addCallbacks(send_output, handle_error)
 		except StopIteration:
 			pass # time to make the request
 
 		r = ViewFetcher(self.conf_data, primary_urls, database, view_uri, view, deferred, self.client_queue, self.reduce_queue)
 		try:
-			# create a wait list for others to jump onto
-			self.in_progress[request.uri] = [request]
 			r.fetch(request)
 		except:
-			# make sure we clear this out if the fetch never happens
+			# make sure we clear this out if an exception is thrown
 			self.in_progress.pop(request.uri, None)
 		
 		return server.NOT_DONE_YET
