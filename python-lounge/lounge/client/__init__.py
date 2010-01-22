@@ -150,11 +150,7 @@ class Resource(object):
 
 		For typical Couch stuff, we parse as JSON.  Override as needed.
 		"""
-		try:
-			rv = cjson.decode(payload)
-		except cjson.DecodeError:
-			rv = payload
-		return rv
+		return cjson.decode(payload)
 	
 	### REST helpers
 	def _request(self, method, url, args=None, body=None):
