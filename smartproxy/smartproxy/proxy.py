@@ -332,8 +332,9 @@ class HTTPProxy(resource.Resource):
 				deferred.addCallback(cache_output)
 				deferred.addCallbacks(send_output, handle_error)
 		except StopIteration:
-			pass # time to make the request
-
+			# not cacheable, so set up our callback and make the request
+			deferred.addCallbacks(send_output, handle_error)
+			
 		r = ViewFetcher(self.conf_data, primary_urls, database, view_uri, view, deferred, self.client_queue, self.reduce_queue)
 		try:
 			r.fetch(request)
