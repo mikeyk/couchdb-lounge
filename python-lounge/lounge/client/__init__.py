@@ -21,6 +21,8 @@ import random
 import StringIO
 import urllib
 
+from cjson import DecodeError
+
 db_config = {
 	'local': 'http://localhost:5984/',
 	}
@@ -150,7 +152,10 @@ class Resource(object):
 
 		For typical Couch stuff, we parse as JSON.  Override as needed.
 		"""
-		return cjson.decode(payload)
+		try:
+			return cjson.decode(payload)
+		except DecodeError:
+			raise DecodeError(payload)
 	
 	### REST helpers
 	def _request(self, method, url, args=None, body=None):
