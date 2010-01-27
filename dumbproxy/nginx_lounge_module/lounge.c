@@ -315,7 +315,11 @@ lounge_handler(ngx_http_request_t *r)
 	if (!unparsed_key) return NGX_ERROR;
 	unparsed_key++;
 	if (unparsed_key >= unparsed_uri_end) return NGX_ERROR;
-	int unparsed_key_len = unparsed_uri_end - unparsed_key;
+
+	u_char *qs_start = ngx_strlchr(unparsed_key, unparsed_uri_end, '?');
+	u_char *unparsed_key_end = qs_start ? qs_start : unparsed_uri_end;
+
+	int unparsed_key_len = unparsed_key_end - unparsed_key;
 
 	r->uri.len = snprintf((char*)r->uri.data, 
 			new_uri_len, "/%s%d/%.*s", db, shard_id, unparsed_key_len, unparsed_key);
