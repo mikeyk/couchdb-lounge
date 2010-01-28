@@ -254,13 +254,13 @@ class HTTPProxy(resource.Resource):
 		# define the callback functions
 		def send_output(s):
 			code, headers, response = s
-			for k in headers:
-				request.setHeader(k, headers[k][-1])
 
 			# write the response to all requests
 			clients = self.in_progress.pop(request.uri, [])
 
 			for c in clients:
+				for k in headers:
+					c.setHeader(k, headers[k][-1])
 				c.write(response+"\n")
 				c.finish()
 			return s

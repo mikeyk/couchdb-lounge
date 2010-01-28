@@ -275,7 +275,7 @@ class Reducer:
 			self.skip = int(args['skip'][0])
 		self.reduce_queue = reduce_queue
 		self.coderecvd = None
-		self.headersrecvd = None
+		self.headersrecvd = {}
 
 		self.descending = 'true' in args.get('descending', ['false'])
 		self.etags = {}
@@ -289,7 +289,7 @@ class Reducer:
 				etag = etag and etag[0].strip('"') or ''
 				self.etags[shard] = etag
 				log.debug("process_map: etag for shard %s is %s" % (shard, etag))
-			self.headersrecvd = headers
+		self.headersrecvd.update(headers)
 
 		#TODO: check to make sure this doesn't go less than 0
 		self.num_entries_remaining = self.num_entries_remaining - 1
@@ -367,7 +367,7 @@ class Reducer:
 					
 					self.reduce_deferred.callback((self.coderecvd, headers, body))
 				else:
-					self.reduce_deferred.callback(body)
+					self.reduce_deferred.errback(body)
 			return
 
 		a,b = self.queue[:2]
