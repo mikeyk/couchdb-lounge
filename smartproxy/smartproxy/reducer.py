@@ -280,15 +280,14 @@ class Reducer:
 		self.descending = 'true' in args.get('descending', ['false'])
 		self.etags = {}
 
-	def process_map(self, data, shard=None, headers=None, code=None):
+	def process_map(self, data, shard=None, headers={}, code=None):
 		if code is not None:
 			self.coderecvd = code
-		if headers is not None:
-			if shard is not None:
-				etag = [vs[-1] for (k,vs) in headers.iteritems() if k.lower() == 'etag']
-				etag = etag and etag[0].strip('"') or ''
-				self.etags[shard] = etag
-				log.debug("process_map: etag for shard %s is %s" % (shard, etag))
+		if shard is not None:
+			etag = [vs[-1] for (k,vs) in headers.iteritems() if k.lower() == 'etag']
+			etag = etag and etag[0].strip('"') or ''
+			self.etags[shard] = etag
+			log.debug("process_map: etag for shard %s is %s" % (shard, etag))
 		self.headersrecvd.update(headers)
 
 		#TODO: check to make sure this doesn't go less than 0
@@ -350,24 +349,20 @@ class Reducer:
 				elif self.skip > 0:
 					self.queue[0]['rows'] = self.queue[0]['rows'][self.skip:]
 				body = cjson.encode(self.queue[0])
-				if self.coderecvd is not None and self.headersrecvd is not None:
-					# filter headers that should not be reverse proxied
-					strip_headers = ['content-length', 'etag']
-					headers = dict([(k,v) for k,v in self.headersrecvd.iteritems() if k.lower() not in strip_headers])
-
+				# filter headers that should not be reverse proxied
+				strip_headers = ['content-length', 'etag']
+				headers = dict([(k,v) for k,v in self.headersrecvd.iteritems() if k.lower() not in strip_headers])
+				
 					# calculate a deterministic etag
-					nodes = self.etags.keys()
-					nodes.sort() # sum in deterministic order
-					md5etag = md5.md5()
-					for node in nodes:
-						md5etag.update(self.etags[node])
-					if len(nodes) > 0:
-						headers['etag'] = ['"%s"' % md5etag.hexdigest()]
-					log.debug("Reducer: response headers = %s" % str(headers))
-					
-					self.reduce_deferred.callback((self.coderecvd, headers, body))
-				else:
-					self.reduce_deferred.errback(body)
+				nodes = self.etags.keys()
+				nodes.sort() # sum in deterministic order
+				md5etag = md5.md5()
+				for node in nodes:
+					md5etag.update(self.etags[node])
+				if len(nodes) > 0:
+					headers['etag'] = ['"%s"' % md5etag.hexdigest()]
+				log.debug("Reducer: response headers = %s" % str(headers))
+				self.reduce_deferred.callback((self.coderecvd, headers, body))
 			return
 
 		a,b = self.queue[:2]
