@@ -66,7 +66,7 @@ class BgReplicator(threading.Thread):
 				last_update[(source, target, do)] = time.time()
 				try:
 					target_host, target_db = target.rsplit('/', 1)
-					post_data = simplejson.dumps({"source": source, "target": target, "designonly": do})
+					post_data = simplejson.dumps({"source": source, "target": target_db, "designonly": do})
 					urllib2.urlopen(target_host + "/_replicate", post_data)
 				except:
 					# don't panic!  keep going to the next record in the queue.
