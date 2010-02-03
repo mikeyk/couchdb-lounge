@@ -414,7 +414,7 @@ class ChangesMerger:
 
 	def __init__(self, request, since):
 		self.request = request
-		self.seq = copy.copy(since)
+		self.seq = copy.deepcopy(since)
 		self.producers = {}
 		self.started = False
 		self.request.connectionLost = self.connectionLost

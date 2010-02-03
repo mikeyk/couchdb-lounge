@@ -411,7 +411,7 @@ class HTTPProxy(resource.Resource):
 		reducer = ChangesReducer(seq, deferred)
 		for shard,shard_seq in zip(shards, seq):
 			nodes = self.conf_data.nodes(shard)
-			shard_args = copy.copy(request.args)
+			shard_args = copy.deepcopy(request.args)
 			shard_args['since'] = [shard_seq]
 
 			qs = urllib.urlencode([(k,v) for k in shard_args for v in shard_args[k]])
