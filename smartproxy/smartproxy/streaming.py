@@ -56,6 +56,10 @@ class StreamingHTTPClient(HTTPPageGetter):
 		self.factory.consumer.unregisterProducer()
 		HTTPPageGetter.connectionLost(self, reason)
 
+	def handleStatus(self, version, status, message):
+		if self.factory.request:
+			self.factory.request.setResponseCode(int(status), message)
+
 class StreamingHTTPClientFactory(HTTPClientFactory):
 	protocol = StreamingHTTPClient 
 	
