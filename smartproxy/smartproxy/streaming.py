@@ -41,9 +41,6 @@ class StreamingHTTPClient(HTTPPageGetter):
 			except:
 				# no consumer is listening, abort
 				self.transport.loseConnection()
-			# tell consumer we're done
-			if 'last_seq' in line:
-				self.transport.loseConnection()
 		else:
 			HTTPPageGetter.lineReceived(self, line)
 	
