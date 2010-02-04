@@ -38,7 +38,7 @@ class StreamingHTTPClient(HTTPPageGetter):
 		if self.body:
 			try:
 				self.factory.consumer.write((self.factory.shard_idx, line + '\n'))
-			except:
+			except IOError:
 				# no consumer is listening, abort
 				self.transport.loseConnection()
 		else:
