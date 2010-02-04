@@ -29,6 +29,11 @@ class StreamingHTTPClient(HTTPPageGetter):
 		self.body = True
 		self.delimiter = "\n"
 
+	def handleHeader(self, key, value):
+		HTTPPageGetter.handleHeader(self, key, value)
+		if self.factory.request and key != 'content-length':
+			self.factory.request.setHeader(key, value)
+
 	def lineReceived(self, line):
 		if self.body:
 			try:
@@ -57,8 +62,9 @@ class StreamingHTTPClient(HTTPPageGetter):
 class StreamingHTTPClientFactory(HTTPClientFactory):
 	protocol = StreamingHTTPClient 
 	
-	def __init__(self, url, method='GET', postdata=None, headers=None, agent="Lounge Streaming Client", timeout=0, cookies=None, followRedirect=1, consumer=None, shard_idx=None):
+	def __init__(self, url, method='GET', request=None, postdata=None, headers=None, agent="Lounge Streaming Client", timeout=0, cookies=None, followRedirect=1, consumer=None, shard_idx=None):
 		HTTPClientFactory.__init__(self, url, method, postdata, headers, agent, timeout, cookies, followRedirect)
+		self.request = request
 		self.consumer = consumer
 		self.shard_idx = shard_idx
 # vi: noexpandtab ts=4 sts=4 sw=4
