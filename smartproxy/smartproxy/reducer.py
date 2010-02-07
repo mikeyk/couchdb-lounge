@@ -31,10 +31,12 @@ from zope.interface import implements
 from twisted.python import log
 from twisted.internet import defer
 from twisted.internet import protocol, reactor, defer, process, task, threads
-from twisted.internet.interfaces import IConsumer
+from twisted.internet.interfaces import IFinishableConsumer, IPushProducer, IPullProducer
 from twisted.protocols import basic
 from twisted.web import server, resource, client
 from twisted.python.failure import DefaultException
+
+import streaming
 
 # see http://wiki.apache.org/couchdb/View_collation
 json_type_order = {
@@ -409,54 +411,15 @@ class ChangesReducer(Reducer):
 		if self.num_entries_remaining == 0:
 			self.reduce_deferred.callback((200, self._response_headers, cjson.encode({"results": self._results, "last_seq": cjson.encode(self._lastseq)})))
 
-class ChangesMerger:
-	implements(IConsumer)
 
-	def __init__(self, request, since):
-		self.request = request
+class ChangesProxy(streaming.MultiPCP):
+	def __init__(self, consumer, since, reducer):
+		streaming.MultiPCP.__init__(self, consumer)
 		self.seq = copy.deepcopy(since)
-		self.producers = {}
-		self.started = False
-		self.request.connectionLost = self.connectionLost
+		self.reducer = reducer
 
-	def registerProducer(self, producer, streaming):
-		self.producers[producer.factory.shard_idx] = producer
-		old_status_fun = producer.handleStatus
-		def status_wrapper(v, s, m):
-			old_status_fun(v, s, m)
-			self.handleStatus(v, s, m)
-		producer.handleStatus = status_wrapper
-
-	def unregisterProducer(self):
-		pass
-
-	def write(self, data):
-		shard_idx, line = data
-		if not self.started:
-			self.started = True
-			self.request.headers = dict([(k,v[-1]) for k,v in self.producers[shard_idx].headers.iteritems() if k.lower() != 'content-length'])
-
-		if line == '\n': # heartbeat
-			self.request.write('\n')
-			return
-
-		row = cjson.decode(line)
-		if 'seq' not in row: # error message, pass through
-			self.request.write(line)
-			self.request.finish()
-			self.connectionLost(line)
-			self.write = lambda d: None
-			return
-		
-		self.seq[shard_idx] = row['seq']
-		row['seq'] = cjson.encode(self.seq)
-		self.request.write(cjson.encode(row) + '\n')
-		
-	def connectionLost(self, reason):
-		for producer in self.producers.itervalues():
-			producer.connectionLost(reason)
-
-	def handleStatus(self, version, status, message):
-		self.request.setResponseCode(int(status), message)
+	def write(self, channelData):
+		channel, data = channelData
+		self.reducer.queue_data(channel, data)
 
 # vi: noexpandtab ts=2 sts=2 sw=2

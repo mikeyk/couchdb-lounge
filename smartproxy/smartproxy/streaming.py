@@ -12,60 +12,139 @@
 #See the License for the specific language governing permissions and
 #limitations under the License.
 
-from twisted.internet.interfaces import IPushProducer, IConsumer
+import sys
+
+import cjson
+
+from cStringIO import StringIO
+
 from twisted.python import log
-from twisted.web.client import HTTPClientFactory, HTTPPageGetter
+from twisted.internet.interfaces import IFinishableConsumer
+from twisted.web import error, http, client, http_headers
+from twisted.internet import defer
+from twisted.protocols import pcp
+from twisted.internet.error import ConnectionDone
 
 from zope.interface import implements
 
-class StreamingHTTPClient(HTTPPageGetter):
-	# methods implemented in _PausableMixin
-	# inherited through _PausableMixin -> LineReceiver -> HTTPClient
-	implements(IPushProducer)
-	body = False
-	
-	def handleEndHeaders(self):
-		HTTPPageGetter.handleEndHeaders(self)
-		self.body = True
-		self.delimiter = "\n"
+def getPageFromAny(upstreams, factory=client.HTTPClientFactory, context_factory=None, *args, **kwargs):
+	if not upstreams:
+		raise error.Error(http.NOT_FOUND)
 
-	def handleHeader(self, key, value):
-		HTTPPageGetter.handleHeader(self, key, value)
-		if self.factory.request and key != 'content-length':
-			self.factory.request.setHeader(key, value)
-
-	def lineReceived(self, line):
-		if self.body:
+	def subgen():
+		lastError = error.Error(http.NOT_FOUND)
+		for (identifier, url) in upstreams:
+			subfactory = client._makeGetterFactory(url, factory, context_factory, *args, **kwargs)
+			wait = defer.waitForDeferred(subfactory.deferred)
+			yield wait
 			try:
-				self.factory.consumer.write((self.factory.shard_idx, line + '\n'))
-			except IOError:
-				# no consumer is listening, abort
-				self.transport.loseConnection()
-		else:
-			HTTPPageGetter.lineReceived(self, line)
-	
-	def rawDataReceived(self, data):
-		# since we stream lines switch back to line mode
-		self.setLineMode(data)
+				yield (identifier, subfactory, wait.getResult())
+				return
+			except:
+				lastError = sys.exc_info()[1]
+		raise lastError
+	return defer.deferredGenerator(subgen)()
 
-	def connectionMade(self):
-		self.factory.consumer.registerProducer(self, True)
-		HTTPPageGetter.connectionMade(self)
+class HTTPStreamer(client.HTTPClientFactory):
+	protocol = client.HTTPPageDownloader
 
-	def connectionLost(self, reason):
-		self.factory.consumer.unregisterProducer()
-		HTTPPageGetter.connectionLost(self, reason)
-
-	def handleStatus(self, version, status, message):
-		if self.factory.request:
-			self.factory.request.setResponseCode(int(status), message)
-
-class StreamingHTTPClientFactory(HTTPClientFactory):
-	protocol = StreamingHTTPClient 
-	
-	def __init__(self, url, method='GET', request=None, postdata=None, headers=None, agent="Lounge Streaming Client", timeout=0, cookies=None, followRedirect=1, consumer=None, shard_idx=None):
-		HTTPClientFactory.__init__(self, url, method, postdata, headers, agent, timeout, cookies, followRedirect)
-		self.request = request
+	def __init__(self, url, consumer, *args, **kwargs):
+		client.HTTPClientFactory.__init__(self, url, *args, **kwargs)
 		self.consumer = consumer
-		self.shard_idx = shard_idx
+		self.deferred.addErrback(self.trapCleanClosure)
+
+	def buildProtocol(self, addr):
+		p = client.HTTPClientFactory.buildProtocol(self, addr)
+		self.consumer.registerProducer(p, True)
+		return p
+
+	def pageStart(self, partialContent):
+		pass
+
+	def pagePart(self, data):
+		self.consumer.write(data)
+
+	def pageEnd(self):
+		self.consumer.unregisterProducer()
+
+	def trapCleanClosure(self, reason):
+		reason.trap(ConnectionDone)
+
+class JSONClientFactory(client.HTTPClientFactory):
+	def __init__(self, *args, **kwargs):
+		client.HTTPClientFactory.__init__(self, args, kwargs)
+		self.deferred.addCallback(self,decode)
+
+	def decode(self, page):
+		return cjson.decode(page)
+
+class HTTPLineStreamer(HTTPStreamer):
+	def __init__(self, *args, **kwargs):
+		HTTPStreamer.__init__(self, *args, **kwargs)
+		self.oldLineReceived = None
+
+	def buildProtocol(self, addr):
+		p = HTTPStreamer.buildProtocol(self, addr)
+		p.setRawMode = lambda: self.setRawModeWrapper(p)
+		p.setLineMode = lambda r='': self.setLineModeWrapper(p, r)
+		return p
+
+	def setRawModeWrapper(self, protocol):
+		if self.oldLineReceived:
+			protocol.setRawMode()
+			return
+		self.oldLineReceived = protocol.lineReceived
+		self.oldDelimiter = protocol.delimiter
+		protocol.lineReceived = self.gotLine
+		protocol.delimiter = '\n'
+
+	def setLineModeWrapper(self, protocol, rest=''):
+		if not self.oldLineReceived:
+			self.protocol.setLineMode(rest)
+			return
+		protocol.lineReceived = self.oldLineReceived
+		protocol.delimiter = self.oldDelimiter
+		protocol.dataReceived(rest)
+	
+	def gotLine(self, data):
+		if data:
+			self.pagePart(data + '\n')
+
+class MultiPCP(pcp.BasicProducerConsumerProxy):
+	class MultiPCPChannel(pcp.BasicProducerConsumerProxy):
+		def __init__(self, name, sink):
+			pcp.BasicProducerConsumerProxy.__init__(self, sink)
+			self.name = name
+
+		def write(self, data):
+			pcp.BasicProducerConsumerProxy.write(self, (self.name, data))
+
+		def finish(self):
+			#trap this so we don't stop the whole multi
+			pass
+
+	def __init__(self, consumer):
+		pcp.BasicProducerConsumerProxy.__init__(self, consumer)
+		self.channels = {}
+
+	def createChannel(self, channel):
+		log.msg("Creating channel %s" % channel)
+		if channel in self.channels:
+			raise ValueError, "channel already open"
+		self.channels[channel] = self.MultiPCPChannel(channel, self)
+		return self.channels[channel]
+
+	def pauseProducing():
+		for channel in self.channels.itervalues():
+			channel.pauseProducing()
+
+	def resumeProducing():
+		for channel in self.channels.itervalues():
+			channel.resumeProducing()
+
+	def write(self, channelData):
+		## Override to specify how this proxy merges channels ##
+		channel, data = channelData
+		pcp.BasicProducerConsumerProxy.write(self, data)
+
 # vi: noexpandtab ts=4 sts=4 sw=4

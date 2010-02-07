@@ -8,7 +8,7 @@ from twisted.web import static, server, script
 from twisted.python import log
 
 from lounge.prefs import Prefs
-from smartproxy.proxy import HTTPProxy
+from smartproxy.proxy import SmartproxyResource
 
 prefs = Prefs(os.environ.get("PREFS",'/etc/lounge/smartproxy.xml'), no_missing_keys=True)
 
@@ -22,7 +22,7 @@ else:
 
 application = service.Application('smartproxy')
 
-site = server.Site(HTTPProxy(prefs))
+site = server.Site(SmartproxyResource(prefs))
 sc = service.IServiceCollection(application)
 i = internet.TCPServer(http_port, site, interface="0.0.0.0")
 i.setServiceParent(sc)

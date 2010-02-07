@@ -32,12 +32,12 @@ from twisted.internet import defer
 from twisted.internet import protocol, reactor, defer, process, task, threads
 from twisted.internet.interfaces import IConsumer
 from twisted.protocols import basic
-from twisted.web import server, resource, client
+from twisted.web import server, resource, client, error, http, http_headers
 from twisted.python.failure import DefaultException
 
 from fetcher import HttpFetcher, MapResultFetcher, DbFetcher, DbGetter, ViewFetcher, AllDbFetcher, ProxyFetcher, ChangesFetcher, UuidFetcher, getPageWithHeaders
 
-from reducer import ReduceQueue, ReducerProcessProtocol, Reducer, AllDocsReducer, ChangesReducer, ChangesMerger
+from reducer import ReduceQueue, ReducerProcessProtocol, Reducer, AllDocsReducer, ChangesReducer
 
 import streaming
 
@@ -113,23 +113,17 @@ def make_success_callback(request):
 	return send_output
 
 def make_errback(request):
-	def handle_error(s):
-		# if we get back some non-http response type error, we should
-		# return 500
-		if hasattr(s.value, 'status'):
-			status = int(s.value.status)
+	def handle_error(reason):
+		if reason.check(error.Error):
+			request.setResponseCode(int(reason.value.status), reason.value.message)
+			if(reason.value.response):
+				request.write(reason.value.response)
+			request.finish()
 		else:
-			status = 500
-		if hasattr(s.value, 'response'):
-			response = s.value.response
-		else:
-			response = '{}'
-		request.setResponseCode(status)
-		request.write(response+"\n") 
-		request.finish()
-	return handle_error
+			request.processingFailed(reason)
+	return handle_error		
 
-class HTTPProxy(resource.Resource):
+class SmartproxyResource(resource.Resource):
 	isLeaf = True
 
 	def __init__(self, prefs):
@@ -346,7 +340,12 @@ class HTTPProxy(resource.Resource):
 			self.in_progress.pop(request.uri, None)
 		
 		return server.NOT_DONE_YET
-	
+
+	#############################################################################
+	################              *** WARNING ***            ####################
+	#############################################################################
+	## CHANGES (with or without ?continuous) IS HORRIBLY BROKEN ON THIS BRANCH ##
+	#############################################################################	
 	def render_continuous_changes(self, request, database):
 		shards = self.conf_data.shards(database)
 
@@ -354,8 +353,6 @@ class HTTPProxy(resource.Resource):
 			since = cjson.decode(request.args['since'][-1])
 		else:
 			since = len(shards)*[0]
-		
-		consumer = ChangesMerger(request, since)
 
 		shard_args = copy.copy(request.args)
 		urls = []
@@ -407,13 +404,12 @@ class HTTPProxy(resource.Resource):
 		deferred.addErrback(handle_error)
 
 		shards = self.conf_data.shards(database)
-		seq = cjson.decode(request.args.get('since', [cjson.encode([0 for shard in shards])])[-1])
-		reducer = ChangesReducer(seq, deferred)
+		seq = cjson.decode(request.args.get('since', [cjson.encode([0 for shard in shards])]))
+		reducer = None
 		for shard,shard_seq in zip(shards, seq):
 			nodes = self.conf_data.nodes(shard)
 			shard_args = copy.deepcopy(request.args)
 			shard_args['since'] = [shard_seq]
-
 			qs = urllib.urlencode([(k,v) for k in shard_args for v in shard_args[k]])
 			urls = [node + "/_changes?" + qs for node in nodes]
 			fetcher = ChangesFetcher(shard, urls, reducer, deferred, self.client_queue)

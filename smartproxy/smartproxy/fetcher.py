@@ -32,6 +32,7 @@ from twisted.internet import protocol, reactor, defer, process, task, threads
 from twisted.protocols import basic
 from twisted.web import server, resource, client
 from twisted.python.failure import DefaultException
+from twisted.web.client import _makeGetterFactory
 
 from reducer import Reducer
 
@@ -336,5 +337,7 @@ class ProxyFetcher(HttpFetcher):
 
 	def _onsuccess(self, page, *args, **kwargs):
 		self._deferred.callback((int(self.factory.status), self.factory.response_headers, page))
+
+class ChangesFactory
 
 # vi: noexpandtab ts=2 sts=2 sw=2
