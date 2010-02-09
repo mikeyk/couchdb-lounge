@@ -348,18 +348,30 @@ class SmartproxyResource(resource.Resource):
 	#############################################################################	
 	def render_continuous_changes(self, request, database):
 		shards = self.conf_data.shards(database)
+		replicaLists = map(shards, lambda s: self.conf_data.nodes(s))
 
+		def makeSinceZeroReplDict(shard_no):
+			return dict((k,0) for k in self.conf_data.shardmap[shard_no])
+
+		since = None
 		if 'since' in request.args:
 			since = cjson.decode(request.args['since'][-1])
-		else:
-			since = len(shards)*[0]
+		if not isinstance(since, dict):
+			since = itertools.imap(makeSinceZeroReplDict, xrange(len(shards)))
 
 		shard_args = copy.copy(request.args)
-		urls = []
-		for i,shard in enumerate(shards):
-			shard_args['since'] = [since[i]]
+		shard_args.pop('since', None)
+
+		jsonOutput = streaming.JSONLinePCP(request)
+		shardProxy = reducer.ChangesProxy(jsonOutput, since)
+		shardMerger = streaming.MultiPCP(shardProxy)
+
+		for replist, shard in itertools.izip(replicaLists, shards):
 			qs = urllib.urlencode([(k,v) for k in shard_args for v in shard_args[k]])
 			urls = [node + '/_changes?' + qs for node in self.conf_data.nodes(shard)]
+
+			
+
 			# TODO failover to the slaves
 			url = urls[0]
 			log.msg("connecting factory to " + url)

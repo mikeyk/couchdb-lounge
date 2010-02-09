@@ -45,6 +45,15 @@ def getPageFromAny(upstreams, factory=client.HTTPClientFactory, context_factory=
 		raise lastError
 	return defer.deferredGenerator(subgen)()
 
+def getPageFromAll(upstreams, factory=client.HTTPClientFactory, context_factory=None, *args, **kwargs):
+	def makeUpstreamGetter(u):
+		identifier, url = u
+		subfactory = client._makeGetterFactory(url, factory, context_factory, *args, **kwargs)
+		subfactory.deferred.addBoth(lambda x: (identifier, subfactory, x))
+		return subfactory.deferred
+
+	return map(makeUpstreamGetter, upstreams)
+
 class HTTPStreamer(client.HTTPClientFactory):
 	protocol = client.HTTPPageDownloader
 
@@ -146,5 +155,16 @@ class MultiPCP(pcp.BasicProducerConsumerProxy):
 		## Override to specify how this proxy merges channels ##
 		channel, data = channelData
 		pcp.BasicProducerConsumerProxy.write(self, data)
+
+class JSONLinePCP(pcp.BasicProducerConsumerProxy):
+	def __init__(self, consumer, encode=True):
+		pcp.BasicProducerConsumerProxy.__init__(self, *args)
+		self.encode = encode
+
+	def write(self, data):
+		if self.encode:
+			pcp.BasicProducerConsumerProxy.write(self, cjson.encode(data) + '\n')
+		else:
+			pcp.BasicProducerConsumerProxy.write(self, cjson.decode(data))
 
 # vi: noexpandtab ts=4 sts=4 sw=4

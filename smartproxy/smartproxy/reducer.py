@@ -413,13 +413,14 @@ class ChangesReducer(Reducer):
 
 
 class ChangesProxy(streaming.MultiPCP):
-	def __init__(self, consumer, since, reducer):
+	def __init__(self, consumer, since):
 		streaming.MultiPCP.__init__(self, consumer)
-		self.seq = copy.deepcopy(since)
-		self.reducer = reducer
+		self.seq = since
 
 	def write(self, channelData):
 		channel, data = channelData
-		self.reducer.queue_data(channel, data)
+		self.seq[channel] = data[seq]
+		data[seq] = self.seq
+		self.consumer.write(data)
 
 # vi: noexpandtab ts=2 sts=2 sw=2
