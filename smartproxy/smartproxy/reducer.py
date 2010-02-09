@@ -424,3 +424,10 @@ class ChangesProxy(streaming.MultiPCP):
 		self.consumer.write(data)
 
 # vi: noexpandtab ts=2 sts=2 sw=2
+
+
+[ 
+[ [3, 6], "feeds1"],
+[ [0, 1], "feeds2"],
+[ [4, 13], "feeds3"],
+]

@@ -35,7 +35,7 @@ from twisted.protocols import basic
 from twisted.web import server, resource, client, error, http, http_headers
 from twisted.python.failure import DefaultException
 
-from fetcher import HttpFetcher, MapResultFetcher, DbFetcher, DbGetter, ViewFetcher, AllDbFetcher, ProxyFetcher, ChangesFetcher, UuidFetcher, getPageWithHeaders
+from fetcher import HttpFetcher, MapResultFetcher, DbFetcher, DbGetter, ViewFetcher, AllDbFetcher, ProxyFetcher, ChangesFetcher, UuidFetcher, getPageWithHeaders, getPageFromAny, getPageFromAll
 
 from reducer import ReduceQueue, ReducerProcessProtocol, Reducer, AllDocsReducer, ChangesReducer
 
@@ -341,14 +341,9 @@ class SmartproxyResource(resource.Resource):
 		
 		return server.NOT_DONE_YET
 
-	#############################################################################
-	################              *** WARNING ***            ####################
-	#############################################################################
-	## CHANGES (with or without ?continuous) IS HORRIBLY BROKEN ON THIS BRANCH ##
-	#############################################################################	
 	def render_continuous_changes(self, request, database):
 		shards = self.conf_data.shards(database)
-		replicaLists = map(shards, lambda s: self.conf_data.nodes(s))
+		rep_lists = map(shards, lambda s: self.conf_data.nodes(s))
 
 		def makeSinceZeroReplDict(shard_no):
 			return dict((k,0) for k in self.conf_data.shardmap[shard_no])
@@ -359,26 +354,73 @@ class SmartproxyResource(resource.Resource):
 		if not isinstance(since, dict):
 			since = itertools.imap(makeSinceZeroReplDict, xrange(len(shards)))
 
+		kwargs = {'headers': request.getAllHeaders()}
+
 		shard_args = copy.copy(request.args)
 		shard_args.pop('since', None)
 
-		jsonOutput = streaming.JSONLinePCP(request)
-		shardProxy = reducer.ChangesProxy(jsonOutput, since)
-		shardMerger = streaming.MultiPCP(shardProxy)
+		json_output = streaming.JSONLinePCP(request)
+		shard_proxy = reducer.ChangesProxy(json_output, since)
 
-		for replist, shard in itertools.izip(replicaLists, shards):
+		deferred_shards = []
+
+		def finish_firehose(result):
+			shard_proxy.stopProducing()
+			shard_proxy.finish()
+
+		def cancel_firehose(reason):
+			reason.trap(error.Error)
+			request.setResponseCode(int(reason.value.code), reason.value.message)
+			shard_proxy.stopProducing()
+			shard_proxy.finish()
+
+		for rep_nos, shard, i in itertools.izip(rep_lists, shards, itertools.count()):
 			qs = urllib.urlencode([(k,v) for k in shard_args for v in shard_args[k]])
-			urls = [node + '/_changes?' + qs for node in self.conf_data.nodes(shard)]
+			urls = (self.conf_data.nodelist[node] + '/_changes?' + qs for node in rep_nos)
+			shard_channel = shard_proxy.createChannel(i)
+			rep_proxy = reducer.ChangesProxy(shard_channel, since[i])
 
+			# generator to create the consumer argument for each channel
+			def argsGen():
+				for r in rep_nos:
+					yield [repProxy.getChannel(r)]
+
+			deferred_reps = getPageFromAll(
+				itertools.izip(
+					rep_nos,
+					urls,
+					argsGen(),
+					itertools.repeat(kwargs)),
+				factory=streaming.JSONLineProducer)
+
+			# simple errback to cancel all the channels
+			def cancel_shard(reason):
+				rep_proxy.stopProducing()
+				rep_proxy.finish()
+				# purposely return nothing
+				# producers callback with nothing
+
+			fail_countdown = len(rep_nos)
+			def rep_error(reason):
+				fail_countdown -= 1
+				if fail_countdown <= 0:
+					return reason
+				# wait 30 seconds to let other replicas do some work
+				d = defer.Deferred()
+				d.addErrback(cancel_shard)
+				reactor.callLater(30, d.errback, reason)
+				return d
 			
+			deferred_shards.append(
+				defer.DeferredList(
+					[d.addErrback(rep_error) for d in deferred_reps],
+					fireOnOneErrback=1,
+					consumeErrors=1))
 
-			# TODO failover to the slaves
-			url = urls[0]
-			log.msg("connecting factory to " + url)
-			factory = streaming.StreamingHTTPClientFactory(url, headers=request.getAllHeaders(), consumer=consumer, shard_idx=i)
-			scheme, host, port, path = client._parse(url)
-			reactor.connectTCP(host, port, factory)
-
+		deferred = defer.DeferredList(deferred_shards,
+					      fireOnOneErrback=1,
+					      consumeErrors=1)
+		deferred.addCallbacks(finish_firehose, cancel_firehose)
 		return server.NOT_DONE_YET
 	
 	def render_changes(self, request):

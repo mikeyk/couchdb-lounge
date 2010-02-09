@@ -44,6 +44,40 @@ def getPageWithHeaders(url, *args, **kwargs):
 	reactor.connectTCP(host, port, factory)
 	return factory
 
+def getPageFromAny(upstreams, factory=client.HTTPClientFactory,
+		   context_factory=None):
+	if not upstreams:
+		raise error.Error(http.INTERNAL_SERVER_ERROR)
+
+	def subgen():
+		lastError = None
+		for (identifier, url, args, kwargs) in upstreams:
+			subfactory = client._makeGetterFactory(url,
+							       factory=factory,
+							       context_factory=context_factory,
+							       *args, **kwargs)
+			wait = defer.waitForDeferred(subfactory.deferred)
+			yield wait
+			try:
+				yield (identifier, subfactory, wait.getResult())
+				return
+			except:
+				lastError = sys.exc_info()[1]
+		raise lastError and lastError or error.Error(http.INTERNAL_SERVER_ERROR)
+	return defer.deferredGenerator(subgen)()
+
+def getPageFromAll(upstreams, factory=client.HTTPClientFactory,
+		   context_factory=None):
+	def makeUpstreamGetter(identifier, url, args, kwargs):
+		subfactory = client._makeGetterFactory(url,
+						       factory=factory,
+						       context_factory=context_factory,
+						       *args, **kwargs)
+		subfactory.deferred.addBoth(lambda x: (identifier, subfactory, x))
+		return subfactory.deferred
+
+	return itertools.starmap(makeUpstreamGetter, upstreams)
+
 def prep_backend_headers(hed, cfg):
 	# rewrite the Location to be a proxied url
 	to_remove = []
@@ -337,7 +371,5 @@ class ProxyFetcher(HttpFetcher):
 
 	def _onsuccess(self, page, *args, **kwargs):
 		self._deferred.callback((int(self.factory.status), self.factory.response_headers, page))
-
-class ChangesFactory
 
 # vi: noexpandtab ts=2 sts=2 sw=2

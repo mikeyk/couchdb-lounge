@@ -12,49 +12,25 @@
 #See the License for the specific language governing permissions and
 #limitations under the License.
 
-import sys
+import warnings
 
 import cjson
 
-from cStringIO import StringIO
-
 from twisted.python import log
-from twisted.internet.interfaces import IFinishableConsumer
-from twisted.web import error, http, client, http_headers
-from twisted.internet import defer
+from twisted.web import error, http, client
+from twisted.internet import interfaces
 from twisted.protocols import pcp
 from twisted.internet.error import ConnectionDone
 
 from zope.interface import implements
 
-def getPageFromAny(upstreams, factory=client.HTTPClientFactory, context_factory=None, *args, **kwargs):
-	if not upstreams:
-		raise error.Error(http.NOT_FOUND)
 
-	def subgen():
-		lastError = error.Error(http.NOT_FOUND)
-		for (identifier, url) in upstreams:
-			subfactory = client._makeGetterFactory(url, factory, context_factory, *args, **kwargs)
-			wait = defer.waitForDeferred(subfactory.deferred)
-			yield wait
-			try:
-				yield (identifier, subfactory, wait.getResult())
-				return
-			except:
-				lastError = sys.exc_info()[1]
-		raise lastError
-	return defer.deferredGenerator(subgen)()
-
-def getPageFromAll(upstreams, factory=client.HTTPClientFactory, context_factory=None, *args, **kwargs):
-	def makeUpstreamGetter(u):
-		identifier, url = u
-		subfactory = client._makeGetterFactory(url, factory, context_factory, *args, **kwargs)
-		subfactory.deferred.addBoth(lambda x: (identifier, subfactory, x))
-		return subfactory.deferred
-
-	return map(makeUpstreamGetter, upstreams)
-
-class HTTPStreamer(client.HTTPClientFactory):
+class HTTPProducer(client.HTTPClientFactory):
+	"""
+	Like twisted.web.client.HTTPDownloader except instead of streaming
+	to a file I stream to a consumer.
+	"""
+	
 	protocol = client.HTTPPageDownloader
 
 	def __init__(self, url, consumer, *args, **kwargs):
@@ -75,25 +51,19 @@ class HTTPStreamer(client.HTTPClientFactory):
 
 	def pageEnd(self):
 		self.consumer.unregisterProducer()
+		self.consumer.finish()
+		self.deferred.callback(None)
 
 	def trapCleanClosure(self, reason):
 		reason.trap(ConnectionDone)
 
-class JSONClientFactory(client.HTTPClientFactory):
+class JSONLineProducer(HTTPProducer):
 	def __init__(self, *args, **kwargs):
-		client.HTTPClientFactory.__init__(self, args, kwargs)
-		self.deferred.addCallback(self,decode)
-
-	def decode(self, page):
-		return cjson.decode(page)
-
-class HTTPLineStreamer(HTTPStreamer):
-	def __init__(self, *args, **kwargs):
-		HTTPStreamer.__init__(self, *args, **kwargs)
+		HTTPProducer.__init__(self, *args, **kwargs)
 		self.oldLineReceived = None
 
 	def buildProtocol(self, addr):
-		p = HTTPStreamer.buildProtocol(self, addr)
+		p = HTTPProducer.buildProtocol(self, addr)
 		p.setRawMode = lambda: self.setRawModeWrapper(p)
 		p.setLineMode = lambda r='': self.setLineModeWrapper(p, r)
 		return p
@@ -120,28 +90,63 @@ class HTTPLineStreamer(HTTPStreamer):
 			self.pagePart(data + '\n')
 
 class MultiPCP(pcp.BasicProducerConsumerProxy):
-	class MultiPCPChannel(pcp.BasicProducerConsumerProxy):
+	class MultiPCPChannel():
+		implements(interfaces.IProducer, interfaces.IConsumer)
+
 		def __init__(self, name, sink):
-			pcp.BasicProducerConsumerProxy.__init__(self, sink)
+			pcp.BasicProducerConsumerProxy.__init__(self, None)
 			self.name = name
+			self.sink = sink
+
+		# Producer methods
+
+		def pauseProducing(self):
+			self.producer.pauseProducing()
+
+		def resumeProducing(self):
+			self.producer.resumeProducing()
+
+		def stopProducing(self):
+			if self.producer is not None:
+				self.producer.stopProducing()
+
+		# Consumer methods
 
 		def write(self, data):
-			pcp.BasicProducerConsumerProxy.write(self, (self.name, data))
+			self.sink.write((self.name, data))
 
 		def finish(self):
-			#trap this so we don't stop the whole multi
-			pass
+			self.sink.deleteChannel(self)
+
+		def registerProducer(self, producer, streaming):
+			self.producer = producer
+
+		def unregisterProducer(self):
+			if self.producer is not None:
+				del self.producer
 
 	def __init__(self, consumer):
 		pcp.BasicProducerConsumerProxy.__init__(self, consumer)
 		self.channels = {}
 
-	def createChannel(self, channel):
+	def createChannel(self, name):
 		log.msg("Creating channel %s" % channel)
 		if channel in self.channels:
 			raise ValueError, "channel already open"
+		
 		self.channels[channel] = self.MultiPCPChannel(channel, self)
 		return self.channels[channel]
+
+	def deleteChannel(self, channel):
+		del self.channels[channel]
+		if not self.channels:
+			self.finish()
+
+	def registerProducer(self, producer, streaming):
+		warnings.warn("directly registering producers with MultiPCP objects is not supported, use createChannel() instead", category=RuntimeWarning)
+
+	def unregisterProducer(self):
+		warnings.warn("directly unregistering producers with MultiPCP objects is not supported, use createChannel() instead", category=RuntimeWarning)
 
 	def pauseProducing():
 		for channel in self.channels.itervalues():
@@ -151,10 +156,15 @@ class MultiPCP(pcp.BasicProducerConsumerProxy):
 		for channel in self.channels.itervalues():
 			channel.resumeProducing()
 
+	def stopProducing():
+		for channel in self.channels.itervalues():
+			channel.stopProducing()
+
 	def write(self, channelData):
 		## Override to specify how this proxy merges channels ##
 		channel, data = channelData
 		pcp.BasicProducerConsumerProxy.write(self, data)
+
 
 class JSONLinePCP(pcp.BasicProducerConsumerProxy):
 	def __init__(self, consumer, encode=True):
