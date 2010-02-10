@@ -15,6 +15,7 @@
 import atexit
 import cPickle
 import lounge
+import itertools
 import os
 import random
 import re
@@ -53,8 +54,8 @@ def getPageFromAny(upstreams, factory=client.HTTPClientFactory,
 		lastError = None
 		for (identifier, url, args, kwargs) in upstreams:
 			subfactory = client._makeGetterFactory(url,
-							       factory=factory,
-							       context_factory=context_factory,
+							       factory,
+							       context_factory,
 							       *args, **kwargs)
 			wait = defer.waitForDeferred(subfactory.deferred)
 			yield wait
@@ -70,8 +71,8 @@ def getPageFromAll(upstreams, factory=client.HTTPClientFactory,
 		   context_factory=None):
 	def makeUpstreamGetter(identifier, url, args, kwargs):
 		subfactory = client._makeGetterFactory(url,
-						       factory=factory,
-						       context_factory=context_factory,
+						       factory,
+						       context_factory,
 						       *args, **kwargs)
 		subfactory.deferred.addBoth(lambda x: (identifier, subfactory, x))
 		return subfactory.deferred

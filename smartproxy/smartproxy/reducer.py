@@ -419,15 +419,9 @@ class ChangesProxy(streaming.MultiPCP):
 
 	def write(self, channelData):
 		channel, data = channelData
-		self.seq[channel] = data[seq]
-		data[seq] = self.seq
-		self.consumer.write(data)
+		if 'seq' in data:
+			self.seq[channel] = data['seq']
+			data['seq'] = self.seq
+			self.consumer.write(data)
 
 # vi: noexpandtab ts=2 sts=2 sw=2
-
-
-[ 
-[ [3, 6], "feeds1"],
-[ [0, 1], "feeds2"],
-[ [4, 13], "feeds3"],
-]

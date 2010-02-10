@@ -40,6 +40,7 @@ from fetcher import HttpFetcher, MapResultFetcher, DbFetcher, DbGetter, ViewFetc
 from reducer import ReduceQueue, ReducerProcessProtocol, Reducer, AllDocsReducer, ChangesReducer
 
 import streaming
+import reducer
 
 def normalize_header(h):
 	return '-'.join([word.capitalize() for word in h.split('-')])
@@ -343,16 +344,17 @@ class SmartproxyResource(resource.Resource):
 
 	def render_continuous_changes(self, request, database):
 		shards = self.conf_data.shards(database)
-		rep_lists = map(shards, lambda s: self.conf_data.nodes(s))
+		rep_lists = self.conf_data.shardmap
 
 		def makeSinceZeroReplDict(shard_no):
-			return dict((k,0) for k in self.conf_data.shardmap[shard_no])
+			return (str(shard_no),
+				dict((str(k),0) for k in self.conf_data.shardmap[shard_no]))
 
 		since = None
 		if 'since' in request.args:
 			since = cjson.decode(request.args['since'][-1])
 		if not isinstance(since, dict):
-			since = itertools.imap(makeSinceZeroReplDict, xrange(len(shards)))
+			since = dict(map(makeSinceZeroReplDict, xrange(len(shards))))
 
 		kwargs = {'headers': request.getAllHeaders()}
 
@@ -366,30 +368,27 @@ class SmartproxyResource(resource.Resource):
 
 		def finish_firehose(result):
 			shard_proxy.stopProducing()
-			shard_proxy.finish()
 
 		def cancel_firehose(reason):
 			reason.trap(error.Error)
 			request.setResponseCode(int(reason.value.code), reason.value.message)
 			shard_proxy.stopProducing()
-			shard_proxy.finish()
 
-		for rep_nos, shard, i in itertools.izip(rep_lists, shards, itertools.count()):
+		for node_nos, shard, i in itertools.izip(rep_lists, shards, itertools.count()):
 			qs = urllib.urlencode([(k,v) for k in shard_args for v in shard_args[k]])
-			urls = (self.conf_data.nodelist[node] + '/_changes?' + qs for node in rep_nos)
-			shard_channel = shard_proxy.createChannel(i)
-			rep_proxy = reducer.ChangesProxy(shard_channel, since[i])
-
-			# generator to create the consumer argument for each channel
-			def argsGen():
-				for r in rep_nos:
-					yield [repProxy.getChannel(r)]
+			def urlGen():
+				for node in node_nos:
+					host, port = self.conf_data.nodelist[node]
+					yield ("http://%s:%s/%s/_changes?%s" %
+					       (host, port, shard, qs))
+			shard_channel = shard_proxy.createChannel(str(i))
+			rep_proxy = reducer.ChangesProxy(shard_channel, since[str(i)])
 
 			deferred_reps = getPageFromAll(
 				itertools.izip(
-					rep_nos,
-					urls,
-					argsGen(),
+					itertools.imap(str, node_nos),
+					urlGen(),
+					([rep_proxy.createChannel(str(node))] for node in node_nos),
 					itertools.repeat(kwargs)),
 				factory=streaming.JSONLineProducer)
 
@@ -400,22 +399,19 @@ class SmartproxyResource(resource.Resource):
 				# purposely return nothing
 				# producers callback with nothing
 
-			fail_countdown = len(rep_nos)
-			def rep_error(reason):
-				fail_countdown -= 1
-				if fail_countdown <= 0:
-					return reason
+			def rep_done(reason):
+				identifier, factory, reason = reason
+				log.msg("Waiting 30 seconds before killing shard firehose")
 				# wait 30 seconds to let other replicas do some work
 				d = defer.Deferred()
-				d.addErrback(cancel_shard)
-				reactor.callLater(30, d.errback, reason)
+				reactor.callLater(3, d.errback, reason)
 				return d
-			
-			deferred_shards.append(
-				defer.DeferredList(
-					[d.addErrback(rep_error) for d in deferred_reps],
-					fireOnOneErrback=1,
-					consumeErrors=1))
+
+			deferred_reps_list = defer.DeferredList(
+				[d.addBoth(rep_done) for d in deferred_reps],
+				fireOnOneErrback=1,
+				consumeErrors=1).addErrback(cancel_shard)
+			deferred_shards.append(deferred_reps_list)
 
 		deferred = defer.DeferredList(deferred_shards,
 					      fireOnOneErrback=1,

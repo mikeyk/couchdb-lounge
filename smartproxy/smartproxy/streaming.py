@@ -36,7 +36,6 @@ class HTTPProducer(client.HTTPClientFactory):
 	def __init__(self, url, consumer, *args, **kwargs):
 		client.HTTPClientFactory.__init__(self, url, *args, **kwargs)
 		self.consumer = consumer
-		self.deferred.addErrback(self.trapCleanClosure)
 
 	def buildProtocol(self, addr):
 		p = client.HTTPClientFactory.buildProtocol(self, addr)
@@ -50,12 +49,8 @@ class HTTPProducer(client.HTTPClientFactory):
 		self.consumer.write(data)
 
 	def pageEnd(self):
-		self.consumer.unregisterProducer()
 		self.consumer.finish()
-		self.deferred.callback(None)
-
-	def trapCleanClosure(self, reason):
-		reason.trap(ConnectionDone)
+		self.consumer.unregisterProducer()
 
 class JSONLineProducer(HTTPProducer):
 	def __init__(self, *args, **kwargs):
@@ -87,14 +82,13 @@ class JSONLineProducer(HTTPProducer):
 	
 	def gotLine(self, data):
 		if data:
-			self.pagePart(data + '\n')
+			self.pagePart(cjson.decode(data))
 
 class MultiPCP(pcp.BasicProducerConsumerProxy):
 	class MultiPCPChannel():
 		implements(interfaces.IProducer, interfaces.IConsumer)
 
 		def __init__(self, name, sink):
-			pcp.BasicProducerConsumerProxy.__init__(self, None)
 			self.name = name
 			self.sink = sink
 
@@ -116,7 +110,7 @@ class MultiPCP(pcp.BasicProducerConsumerProxy):
 			self.sink.write((self.name, data))
 
 		def finish(self):
-			self.sink.deleteChannel(self)
+			self.sink.deleteChannel(self.name)
 
 		def registerProducer(self, producer, streaming):
 			self.producer = producer
@@ -130,33 +124,26 @@ class MultiPCP(pcp.BasicProducerConsumerProxy):
 		self.channels = {}
 
 	def createChannel(self, name):
-		log.msg("Creating channel %s" % channel)
-		if channel in self.channels:
+		if name in self.channels:
 			raise ValueError, "channel already open"
 		
-		self.channels[channel] = self.MultiPCPChannel(channel, self)
-		return self.channels[channel]
+		self.channels[name] = self.MultiPCPChannel(name, self)
+		return self.channels[name]
 
-	def deleteChannel(self, channel):
-		del self.channels[channel]
+	def deleteChannel(self, name):
+		del self.channels[name]
 		if not self.channels:
 			self.finish()
 
-	def registerProducer(self, producer, streaming):
-		warnings.warn("directly registering producers with MultiPCP objects is not supported, use createChannel() instead", category=RuntimeWarning)
-
-	def unregisterProducer(self):
-		warnings.warn("directly unregistering producers with MultiPCP objects is not supported, use createChannel() instead", category=RuntimeWarning)
-
-	def pauseProducing():
+	def pauseProducing(self):
 		for channel in self.channels.itervalues():
 			channel.pauseProducing()
 
-	def resumeProducing():
+	def resumeProducing(self):
 		for channel in self.channels.itervalues():
 			channel.resumeProducing()
 
-	def stopProducing():
+	def stopProducing(self):
 		for channel in self.channels.itervalues():
 			channel.stopProducing()
 
@@ -165,10 +152,23 @@ class MultiPCP(pcp.BasicProducerConsumerProxy):
 		channel, data = channelData
 		pcp.BasicProducerConsumerProxy.write(self, data)
 
+	def finish(self):
+		if self.consumer is not None:
+			self.consumer.finish()
+			self.consumer.unregisterProducer()
+
+	def registerProducer(self, producer, streaming):
+		warnings.warn("directly registering producers with MultiPCP objects is not supported, use createChannel() instead", category=RuntimeWarning)
+
+	def unregisterProducer(self):
+		raise RuntimeError, "You fail dude"
+		warnings.warn("directly unregistering producers with MultiPCP objects is not supported, use createChannel() instead", category=RuntimeWarning)
+
+
 
 class JSONLinePCP(pcp.BasicProducerConsumerProxy):
 	def __init__(self, consumer, encode=True):
-		pcp.BasicProducerConsumerProxy.__init__(self, *args)
+		pcp.BasicProducerConsumerProxy.__init__(self, consumer)
 		self.encode = encode
 
 	def write(self, data):
