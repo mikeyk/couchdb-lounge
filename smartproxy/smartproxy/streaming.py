@@ -49,8 +49,8 @@ class HTTPProducer(client.HTTPClientFactory):
 		self.consumer.write(data)
 
 	def pageEnd(self):
-		self.consumer.finish()
 		self.consumer.unregisterProducer()
+		self.consumer.finish()
 
 class JSONLineProducer(HTTPProducer):
 	def __init__(self, *args, **kwargs):
@@ -91,6 +91,7 @@ class MultiPCP(pcp.BasicProducerConsumerProxy):
 		def __init__(self, name, sink):
 			self.name = name
 			self.sink = sink
+			self.producer = None
 
 		# Producer methods
 
@@ -110,14 +111,20 @@ class MultiPCP(pcp.BasicProducerConsumerProxy):
 			self.sink.write((self.name, data))
 
 		def finish(self):
-			self.sink.deleteChannel(self.name)
+			pass
+			#self.sink.deleteChannel(self.name)
 
 		def registerProducer(self, producer, streaming):
 			self.producer = producer
 
 		def unregisterProducer(self):
 			if self.producer is not None:
-				del self.producer
+				self.producer = None
+				self.sink.deleteChannel(self.name)
+
+		def __repr__(self):
+			return '<%s@%x around %s>' % (self.__class__, id(self), self.sink)
+
 
 	def __init__(self, consumer):
 		pcp.BasicProducerConsumerProxy.__init__(self, consumer)
@@ -133,7 +140,7 @@ class MultiPCP(pcp.BasicProducerConsumerProxy):
 	def deleteChannel(self, name):
 		del self.channels[name]
 		if not self.channels:
-			self.finish()
+			self.consumer.unregisterProducer()
 
 	def pauseProducing(self):
 		for channel in self.channels.itervalues():
@@ -154,8 +161,9 @@ class MultiPCP(pcp.BasicProducerConsumerProxy):
 
 	def finish(self):
 		if self.consumer is not None:
-			self.consumer.finish()
 			self.consumer.unregisterProducer()
+			self.consumer.finish()
+			self.consumer = None
 
 	def registerProducer(self, producer, streaming):
 		warnings.warn("directly registering producers with MultiPCP objects is not supported, use createChannel() instead", category=RuntimeWarning)
@@ -163,8 +171,6 @@ class MultiPCP(pcp.BasicProducerConsumerProxy):
 	def unregisterProducer(self):
 		raise RuntimeError, "You fail dude"
 		warnings.warn("directly unregistering producers with MultiPCP objects is not supported, use createChannel() instead", category=RuntimeWarning)
-
-
 
 class JSONLinePCP(pcp.BasicProducerConsumerProxy):
 	def __init__(self, consumer, encode=True):

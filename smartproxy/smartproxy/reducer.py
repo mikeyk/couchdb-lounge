@@ -423,5 +423,12 @@ class ChangesProxy(streaming.MultiPCP):
 			self.seq[channel] = data['seq']
 			data['seq'] = self.seq
 			self.consumer.write(data)
+		if 'lst_seq' in data:
+			self.finish()
+
+	def finish(self):
+		if self.consumer is not None:
+			self.consumer.write({'last_seq': self.seq})
+		streaming.MultiPCP.finish(self)
 
 # vi: noexpandtab ts=2 sts=2 sw=2

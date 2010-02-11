@@ -60,7 +60,7 @@ def getPageFromAny(upstreams, factory=client.HTTPClientFactory,
 			wait = defer.waitForDeferred(subfactory.deferred)
 			yield wait
 			try:
-				yield (identifier, subfactory, wait.getResult())
+				yield (subfactory, wait.getResult())
 				return
 			except:
 				lastError = sys.exc_info()[1]
@@ -69,15 +69,16 @@ def getPageFromAny(upstreams, factory=client.HTTPClientFactory,
 
 def getPageFromAll(upstreams, factory=client.HTTPClientFactory,
 		   context_factory=None):
-	def makeUpstreamGetter(identifier, url, args, kwargs):
+	def makeUpstreamGetter(upstream):
+		identifier, url, args, kwargs = upstream
 		subfactory = client._makeGetterFactory(url,
 						       factory,
 						       context_factory,
 						       *args, **kwargs)
-		subfactory.deferred.addBoth(lambda x: (identifier, subfactory, x))
+		subfactory.deferred.addBoth(lambda x: (subfactory, x))
 		return subfactory.deferred
 
-	return itertools.starmap(makeUpstreamGetter, upstreams)
+	return map(makeUpstreamGetter, upstreams)
 
 def prep_backend_headers(hed, cfg):
 	# rewrite the Location to be a proxied url

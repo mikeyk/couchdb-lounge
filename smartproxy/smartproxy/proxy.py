@@ -366,57 +366,63 @@ class SmartproxyResource(resource.Resource):
 
 		deferred_shards = []
 
-		def finish_firehose(result):
+		def finish_firehose(reason):
+			# stop the remaining channels
 			shard_proxy.stopProducing()
+			# unregister explicitly
+			# twisted's BasicProducerConsumerProxy foolishly calls finish on the 
+			# consumer before unregistering, generating warnings on the request
+			json_output.unregisterProducer()
+			shard_proxy.finish() # this will finish the request
 
 		def cancel_firehose(reason):
-			reason.trap(error.Error)
-			request.setResponseCode(int(reason.value.code), reason.value.message)
-			shard_proxy.stopProducing()
+			reason, shard_id = reason
+			reason, rep_id = reason
+			factory, reason = reason
+			log.msg("Failure in _changes feed, this is generally not a problem.")
+			log.msg("Shard %s, replica %s failed with %s" % (shard_id, rep_id, reason))
+			log.msg("Waiting 30 seconds before killing the _changes firehose.")
+			d = defer.Deferred().addErrback(finish_firehose)
+			reactor.callLater(3, d.errback, reason)
+			return d
 
-		for node_nos, shard, i in itertools.izip(rep_lists, shards, itertools.count()):
+		shard_info_list = itertools.izip(rep_lists,
+						 shards,
+						 itertools.imap(str,
+							       itertools.count()))
+		for node_nos, shard, shard_id in shard_info_list:
+			node_ids = map(str, node_nos)
 			qs = urllib.urlencode([(k,v) for k in shard_args for v in shard_args[k]])
 			def urlGen():
 				for node in node_nos:
 					host, port = self.conf_data.nodelist[node]
 					yield ("http://%s:%s/%s/_changes?%s" %
 					       (host, port, shard, qs))
-			shard_channel = shard_proxy.createChannel(str(i))
-			rep_proxy = reducer.ChangesProxy(shard_channel, since[str(i)])
+			shard_channel = shard_proxy.createChannel(shard_id)
+			rep_proxy = reducer.ChangesProxy(shard_channel,
+							 since[shard_id])
 
 			deferred_reps = getPageFromAll(
 				itertools.izip(
-					itertools.imap(str, node_nos),
+					node_ids,
 					urlGen(),
-					([rep_proxy.createChannel(str(node))] for node in node_nos),
+					([rep_proxy.createChannel(node)]
+					 for node in node_ids),
 					itertools.repeat(kwargs)),
 				factory=streaming.JSONLineProducer)
 
-			# simple errback to cancel all the channels
-			def cancel_shard(reason):
-				rep_proxy.stopProducing()
-				rep_proxy.finish()
-				# purposely return nothing
-				# producers callback with nothing
-
-			def rep_done(reason):
-				identifier, factory, reason = reason
-				log.msg("Waiting 30 seconds before killing shard firehose")
-				# wait 30 seconds to let other replicas do some work
-				d = defer.Deferred()
-				reactor.callLater(3, d.errback, reason)
-				return d
-
 			deferred_reps_list = defer.DeferredList(
-				[d.addBoth(rep_done) for d in deferred_reps],
+				deferred_reps,
 				fireOnOneErrback=1,
-				consumeErrors=1).addErrback(cancel_shard)
+				fireOnOneCallback=1,
+				consumeErrors=1)
 			deferred_shards.append(deferred_reps_list)
 
 		deferred = defer.DeferredList(deferred_shards,
 					      fireOnOneErrback=1,
+					      fireOnOneCallback=1,
 					      consumeErrors=1)
-		deferred.addCallbacks(finish_firehose, cancel_firehose)
+		deferred.addBoth(cancel_firehose)
 		return server.NOT_DONE_YET
 	
 	def render_changes(self, request):
@@ -454,12 +460,13 @@ class SmartproxyResource(resource.Resource):
 		deferred.addErrback(handle_error)
 
 		shards = self.conf_data.shards(database)
-		seq = cjson.decode(request.args.get('since', [cjson.encode([0 for shard in shards])]))
-		reducer = None
+		seq = cjson.decode(request.args.get('since', [cjson.encode([0 for shard in shards])])[-1])
+		reducer = ChangesReducer(seq, deferred)
 		for shard,shard_seq in zip(shards, seq):
 			nodes = self.conf_data.nodes(shard)
 			shard_args = copy.deepcopy(request.args)
 			shard_args['since'] = [shard_seq]
+
 			qs = urllib.urlencode([(k,v) for k in shard_args for v in shard_args[k]])
 			urls = [node + "/_changes?" + qs for node in nodes]
 			fetcher = ChangesFetcher(shard, urls, reducer, deferred, self.client_queue)
