@@ -25,6 +25,7 @@ import re
 import sys
 import time
 import urllib
+import zlib
 
 from zope.interface import implements
 
@@ -349,10 +350,14 @@ class SmartproxyResource(resource.Resource):
 
 		since = None
 		if 'since' in request.args:
-			log.msg("decode: %s" % cjson.decode(base64.urlsafe_b64decode(request.args['since'][-1])))
-			since = cjson.decode(base64.urlsafe_b64decode(request.args['since'][-1]))
+			since = cjson.decode(zlib.decompress(base64.urlsafe_b64decode(request.args['since'][-1])))
+			if any(itertools.map(lambda s, rl: str(s) not in since[s] # missing shard
+					     or all(lambda r: str(r) not in since[s], rl), # no known replicas,
+					     itertools.izip(itertools.count(), rep_lists))):
+				request.setResponseCode(http.BAD_REQUEST)
+				return '{"error":"bad request","reason":"missing shard or no known replicas in since"}'
 			del request.args['since']
-		if not isinstance(since, dict):
+		else:
 			since = dict(map(lambda n: (str(n),
 						    dict((str(k),0) for k in self.conf_data.shardmap[n])),
 					 xrange(len(shards))))
