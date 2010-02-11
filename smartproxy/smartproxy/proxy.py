@@ -401,7 +401,7 @@ class SmartproxyResource(resource.Resource):
 			log.msg("Shard %s, replica %s failed with %s" % (shard_id, rep_id, reason))
 			log.msg("Waiting 30 seconds before killing the _changes firehose.")
 			d = defer.Deferred().addErrback(finish_firehose)
-			reactor.callLater(3, d.errback, reason)
+			reactor.callLater(30, d.errback, reason)
 			return d
 
 		shard_info_list = itertools.izip(rep_lists,
