@@ -85,7 +85,7 @@ class JSONLineProducer(HTTPProducer):
 			self.pagePart(cjson.decode(data))
 
 class MultiPCP(pcp.BasicProducerConsumerProxy):
-	class MultiPCPChannel():
+	class MultiPCPChannel:
 		implements(interfaces.IProducer, interfaces.IConsumer)
 
 		def __init__(self, name, sink):
