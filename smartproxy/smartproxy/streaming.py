@@ -52,7 +52,7 @@ class HTTPProducer(client.HTTPClientFactory):
 		self.consumer.unregisterProducer()
 		self.consumer.finish()
 
-class JSONLineProducer(HTTPProducer):
+class HTTPLineProducer(HTTPProducer):
 	def __init__(self, *args, **kwargs):
 		HTTPProducer.__init__(self, *args, **kwargs)
 		self.oldLineReceived = None
@@ -82,7 +82,7 @@ class JSONLineProducer(HTTPProducer):
 	
 	def gotLine(self, data):
 		if data:
-			self.pagePart(cjson.decode(data))
+			self.pagePart(data)
 
 class MultiPCP(pcp.BasicProducerConsumerProxy):
 	class MultiPCPChannel:
@@ -139,7 +139,7 @@ class MultiPCP(pcp.BasicProducerConsumerProxy):
 
 	def deleteChannel(self, name):
 		del self.channels[name]
-		if not self.channels:
+		if not self.channels and self.consumer:
 			self.consumer.unregisterProducer()
 
 	def pauseProducing(self):
@@ -172,15 +172,13 @@ class MultiPCP(pcp.BasicProducerConsumerProxy):
 		raise RuntimeError, "You fail dude"
 		warnings.warn("directly unregistering producers with MultiPCP objects is not supported, use createChannel() instead", category=RuntimeWarning)
 
-class JSONLinePCP(pcp.BasicProducerConsumerProxy):
-	def __init__(self, consumer, encode=True):
+class LinePCP(pcp.BasicProducerConsumerProxy):
+	def __init__(self, consumer, xform=lambda x: x + '\n'):
 		pcp.BasicProducerConsumerProxy.__init__(self, consumer)
-		self.encode = encode
+		self.xform = xform
 
 	def write(self, data):
-		if self.encode:
-			pcp.BasicProducerConsumerProxy.write(self, cjson.encode(data) + '\n')
-		else:
-			pcp.BasicProducerConsumerProxy.write(self, cjson.decode(data))
+		pcp.BasicProducerConsumerProxy.write(self, self.xform(data))
+
 
 # vi: noexpandtab ts=4 sts=4 sw=4

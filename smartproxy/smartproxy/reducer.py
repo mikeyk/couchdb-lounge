@@ -419,12 +419,16 @@ class ChangesProxy(streaming.MultiPCP):
 
 	def write(self, channelData):
 		channel, data = channelData
-		if 'seq' in data:
+		if not data:
+			return
+		elif 'seq' in data:
 			self.seq[channel] = data['seq']
 			data['seq'] = self.seq
 			self.consumer.write(data)
-		if 'lst_seq' in data:
+		elif 'last_seq' in data:
 			self.finish()
+		else:
+			self.consumer.write(data)
 
 	def finish(self):
 		if self.consumer is not None:

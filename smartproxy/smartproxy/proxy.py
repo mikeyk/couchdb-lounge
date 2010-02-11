@@ -13,6 +13,7 @@
 #limitations under the License.
 
 import atexit
+import base64
 import cjson
 import cPickle
 import copy
@@ -346,27 +347,44 @@ class SmartproxyResource(resource.Resource):
 		shards = self.conf_data.shards(database)
 		rep_lists = self.conf_data.shardmap
 
-		def makeSinceZeroReplDict(shard_no):
-			return (str(shard_no),
-				dict((str(k),0) for k in self.conf_data.shardmap[shard_no]))
-
 		since = None
 		if 'since' in request.args:
-			since = cjson.decode(request.args['since'][-1])
+			log.msg("decode: %s" % cjson.decode(base64.urlsafe_b64decode(request.args['since'][-1])))
+			since = cjson.decode(base64.urlsafe_b64decode(request.args['since'][-1]))
+			del request.args['since']
 		if not isinstance(since, dict):
-			since = dict(map(makeSinceZeroReplDict, xrange(len(shards))))
+			since = dict(map(lambda n: (str(n),
+						    dict((str(k),0) for k in self.conf_data.shardmap[n])),
+					 xrange(len(shards))))
+
+		heartbeat = None
+		if 'heartbeat' in request.args:
+			heartbeat = task.LoopingCall(lambda: request.write('\n'))
+			heartbeat.start(int(request.args['heartbeat'][-1]) / 1000)
+			del request.args['heartbeat']
 
 		kwargs = {'headers': request.getAllHeaders()}
 
-		shard_args = copy.copy(request.args)
-		shard_args.pop('since', None)
+		def output_transformation(line):
+			if not line:
+				return ''
+			if 'seq' in line:
+				line['seq'] = base64.urlsafe_b64encode(cjson.encode(line['seq']))
+			elif 'last_seq' in line:
+				line['last_seq'] = base64.urlsafe_b64encode(cjson.encode(line['last_seq']))
+			return cjson.encode(line) + '\n'
 
-		json_output = streaming.JSONLinePCP(request)
+		def input_transformation(line):
+			return cjson.decode(line)
+
+		json_output = streaming.LinePCP(request, xform = output_transformation)
 		shard_proxy = reducer.ChangesProxy(json_output, since)
 
 		deferred_shards = []
 
 		def finish_firehose(reason):
+			if heartbeat:
+				heartbeat.stop()
 			# stop the remaining channels
 			shard_proxy.stopProducing()
 			# unregister explicitly
@@ -392,24 +410,27 @@ class SmartproxyResource(resource.Resource):
 							       itertools.count()))
 		for node_nos, shard, shard_id in shard_info_list:
 			node_ids = map(str, node_nos)
-			qs = urllib.urlencode([(k,v) for k in shard_args for v in shard_args[k]])
+			qs = urllib.urlencode([(k,v) for k in request.args for v in request.args[k]])
+				
 			def urlGen():
 				for node in node_nos:
 					host, port = self.conf_data.nodelist[node]
-					yield ("http://%s:%s/%s/_changes?%s" %
-					       (host, port, shard, qs))
+					yield ("http://%s:%s/%s/_changes?since=%s&%s" %
+					       (host, port, shard, since[shard_id][str(node)], qs))
 			shard_channel = shard_proxy.createChannel(shard_id)
 			rep_proxy = reducer.ChangesProxy(shard_channel,
 							 since[shard_id])
+
+			channels = (streaming.LinePCP(rep_proxy.createChannel(node),
+						      xform = input_transformation) for node in node_ids)
 
 			deferred_reps = getPageFromAll(
 				itertools.izip(
 					node_ids,
 					urlGen(),
-					([rep_proxy.createChannel(node)]
-					 for node in node_ids),
+					([c] for c in channels),
 					itertools.repeat(kwargs)),
-				factory=streaming.JSONLineProducer)
+				factory=streaming.HTTPLineProducer)
 
 			deferred_reps_list = defer.DeferredList(
 				deferred_reps,
