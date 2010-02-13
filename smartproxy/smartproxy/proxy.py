@@ -351,9 +351,10 @@ class SmartproxyResource(resource.Resource):
 		since = None
 		if 'since' in request.args:
 			since = cjson.decode(zlib.decompress(base64.urlsafe_b64decode(request.args['since'][-1])))
-			if any(itertools.map(lambda s, rl: str(s) not in since[s] # missing shard
-					     or all(lambda r: str(r) not in since[s], rl), # no known replicas,
-					     itertools.izip(itertools.count(), rep_lists))):
+			print since
+			if any(itertools.imap(lambda s, rl: str(s) not in since[str(s)] # missing shard
+					      or all(lambda r: str(r) not in since[str(s)], rl), # no known replicas,
+					      itertools.count(), rep_lists)):
 				request.setResponseCode(http.BAD_REQUEST)
 				return '{"error":"bad request","reason":"missing shard or no known replicas in since"}'
 			del request.args['since']
@@ -420,7 +421,7 @@ class SmartproxyResource(resource.Resource):
 			def urlGen():
 				for node in node_nos:
 					host, port = self.conf_data.nodelist[node]
-					yield ("http://%s:%s/%s/_changes?since=%s&%s" %
+					yield ("http://%s:%d/%s/_changes?since=%s&%s" %
 					       (host, port, shard, since[shard_id][str(node)], qs))
 			shard_channel = shard_proxy.createChannel(shard_id)
 			rep_proxy = reducer.ChangesProxy(shard_channel,
@@ -431,7 +432,6 @@ class SmartproxyResource(resource.Resource):
 
 			deferred_reps = getPageFromAll(
 				itertools.izip(
-					node_ids,
 					urlGen(),
 					([c] for c in channels),
 					itertools.repeat(kwargs)),
@@ -712,30 +712,74 @@ class SmartproxyResource(resource.Resource):
 
 		# chop off the leading /
 		db_name = request.uri.strip('/')
-		# TODO fail over each primary shard to its replicants
-		nodes = self.conf_data.primary_shards(db_name)
 
-		deferred = defer.Deferred()
-		deferred.addCallback(lambda s:
-									(request.write(cjson.encode(s)+"\n"), request.finish()))
-		def handle_error(s):
-			# if we get back some non-http response type error, we should
-			# return 500
-			if hasattr(s.value, 'status'):
-				status = int(s.value.status)
-			else:
-				status = 500
-			if hasattr(s.value, 'response'):
-				response = s.value.response
-			else:
-				response = '{}'
-			request.setResponseCode(status)
-			request.write(response+"\n") 
+		# fold function to reduce the sharded results
+		def fold_results_fun(acc, result):
+			print result
+			result, shard_idx = result             #packed by DeferredList
+			factory, result, rep_idx = result      #packed by getPageFromAny
+			result = cjson.decode(result)
+			acc['doc_count'] += result['doc_count']
+			acc['doc_del_count'] += result['doc_del_count']
+			acc['update_seq'][str(shard_idx)] = {str(rep_idx): result['update_seq']}
+			acc['purge_seq'][str(shard_idx)] = {str(rep_idx): result['purge_seq']}
+			acc['compact_running'].append(result['compact_running'])
+			acc['disk_size'] += result['disk_size']
+			return acc
+
+		# success callback
+		def finish_request(results):
+			# results looks like (True, result) since we get here only if all succeeed
+			# reduce over these results with fold_results_fun to produce output
+			print results
+			output = reduce(fold_results_fun,
+					itertools.izip(itertools.imap(lambda x: x[1], results), # pull out result
+						       itertools.count()),
+					{'db_name': db_name,
+					 'doc_count': 0,
+					 'doc_del_count': 0,
+					 'update_seq': {},
+					 'purge_seq': {},
+					 'compact_running': [],
+					 'disk_size': 0})
+			# encode the sequence information
+			output['update_seq'] = base64.urlsafe_b64encode(zlib.compress(cjson.encode(output['update_seq'])))
+			output['purge_seq'] = base64.urlsafe_b64encode(zlib.compress(cjson.encode(output['purge_seq'])))
+			request.write(cjson.encode(output) + '\n')
 			request.finish()
-		deferred.addErrback(handle_error)
 
-		f = DbGetter(self.conf_data, nodes, deferred, db_name, self.client_queue)
-		f.fetch(request)
+		# error callback
+		def handle_error(reason):
+			reason, shard_idx = reason.value
+			try:
+				reason.trap(error.Error) # trap http error from subrequest
+				request.setResponseCode(int(reason.status))
+				request.write(reason.response)
+			except:
+				# if we get back some non-http response type error, we should
+				# return 500
+				request.setResponseCode(http.INTERNAL_SERVER_ERROR)
+			finally:
+				request.finish()
+		
+		# construct a DeferredList of the deferred sub-requests
+		# fetches shard results from any replica of each shard
+		# if any shard fails completely the whole thing fails fast
+		nodes = self.conf_data.nodelist
+		deferred = defer.DeferredList(
+			# map over all the shards and get a deferred that handles fail-over
+			map(lambda s, rl: getPageFromAny(
+					# create the upstream descriptions by mapping over the replica list
+					itertools.imap(lambda r: ("http://%s:%s/%s%d"
+								  % (nodes[r][0], nodes[r][1], db_name, s),
+								  [],   # factory args
+								  {}),  # factor kwargs
+						       rl)),
+					xrange(len(self.conf_data.shardmap)),
+					self.conf_data.shardmap),
+			fireOnOneErrback=1,
+			consumeErrors=1).addCallbacks(finish_request, handle_error)
+
 		return server.NOT_DONE_YET
 
 	def _rewrite_url(self, url):
