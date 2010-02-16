@@ -52,8 +52,7 @@ def getPageFromAny(upstreams, factory=client.HTTPClientFactory,
 
 	def subgen():
 		lastError = None
-		index = 0
-		for (url, args, kwargs) in upstreams:
+		for (identifier, url, args, kwargs) in upstreams:
 			subfactory = client._makeGetterFactory(url,
 							       factory,
 							       context_factory,
@@ -61,23 +60,22 @@ def getPageFromAny(upstreams, factory=client.HTTPClientFactory,
 			wait = defer.waitForDeferred(subfactory.deferred)
 			yield wait
 			try:
-				yield (subfactory, wait.getResult(), index)
+				yield (wait.getResult(), identifier, subfactory)
 				return
 			except:
 				lastError = sys.exc_info()[1]
-			index = index + 1
 		raise lastError and lastError or error.Error(http.INTERNAL_SERVER_ERROR)
 	return defer.deferredGenerator(subgen)()
 
 def getPageFromAll(upstreams, factory=client.HTTPClientFactory,
 		   context_factory=None):
 	def makeUpstreamGetter(upstream):
-		url, args, kwargs = upstream
+		identifier, url, args, kwargs = upstream
 		subfactory = client._makeGetterFactory(url,
 						       factory,
 						       context_factory,
 						       *args, **kwargs)
-		subfactory.deferred.addBoth(lambda x: (subfactory, x))
+		subfactory.deferred.addBoth(lambda x: (x, identifier, subfactory))
 		return subfactory.deferred
 
 	return map(makeUpstreamGetter, upstreams)

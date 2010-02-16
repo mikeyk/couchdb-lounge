@@ -351,16 +351,18 @@ class SmartproxyResource(resource.Resource):
 		since = None
 		if 'since' in request.args:
 			since = cjson.decode(zlib.decompress(base64.urlsafe_b64decode(request.args['since'][-1])))
-			print since
-			if any(itertools.imap(lambda s, rl: str(s) not in since[str(s)] # missing shard
-					      or all(lambda r: str(r) not in since[str(s)], rl), # no known replicas,
-					      itertools.count(), rep_lists)):
+			if True in itertools.imap(lambda s, rl: str(s) not in since # missing shard
+						  or False not in
+						  itertools.imap(lambda r:
+								 str(r) not in since[str(s)],
+								 rl), # no recognized replicas
+					      itertools.count(), rep_lists):
 				request.setResponseCode(http.BAD_REQUEST)
 				return '{"error":"bad request","reason":"missing shard or no known replicas in since"}'
 			del request.args['since']
 		else:
 			since = dict(map(lambda n: (str(n),
-						    dict((str(k),0) for k in self.conf_data.shardmap[n])),
+						    {str(self.conf_data.shardmap[n][0]): 0}),
 					 xrange(len(shards))))
 
 		heartbeat = None
@@ -375,9 +377,11 @@ class SmartproxyResource(resource.Resource):
 			if not line:
 				return ''
 			if 'seq' in line:
-				line['seq'] = base64.urlsafe_b64encode(cjson.encode(line['seq']))
+				line['seq'] = base64.urlsafe_b64encode(
+					zlib.compress(cjson.encode(line['seq']), 1))
 			elif 'last_seq' in line:
-				line['last_seq'] = base64.urlsafe_b64encode(cjson.encode(line['last_seq']))
+				line['last_seq'] = base64.urlsafe_b64encode(
+					zlib.compress(cjson.encode(line['last_seq']), 1))
 			return cjson.encode(line) + '\n'
 
 		def input_transformation(line):
@@ -389,6 +393,9 @@ class SmartproxyResource(resource.Resource):
 		deferred_shards = []
 
 		def finish_firehose(reason):
+			reason, shard_id = reason # packed by deferred list
+			reason, ch_idx = reason # packed by deferred list
+			reason, factory, rep_id = reason # packed by getPageFromAll
 			if heartbeat:
 				heartbeat.stop()
 			# stop the remaining channels
@@ -399,39 +406,31 @@ class SmartproxyResource(resource.Resource):
 			json_output.unregisterProducer()
 			shard_proxy.finish() # this will finish the request
 
-		def cancel_firehose(reason):
-			reason, shard_id = reason
-			reason, rep_id = reason
-			factory, reason = reason
-			log.msg("Failure in _changes feed, this is generally not a problem.")
-			log.msg("Shard %s, replica %s failed with %s" % (shard_id, rep_id, reason))
-			log.msg("Waiting 30 seconds before killing the _changes firehose.")
-			d = defer.Deferred().addErrback(finish_firehose)
-			reactor.callLater(30, d.errback, reason)
-			return d
-
-		shard_info_list = itertools.izip(rep_lists,
+		shard_info_list = itertools.izip(since.itervalues(),
 						 shards,
 						 itertools.imap(str,
 							       itertools.count()))
-		for node_nos, shard, shard_id in shard_info_list:
-			node_ids = map(str, node_nos)
+		for rep_since, shard, shard_id in shard_info_list:
 			qs = urllib.urlencode([(k,v) for k in request.args for v in request.args[k]])
-				
+
+			print "Shard %s" % shard_id
 			def urlGen():
-				for node in node_nos:
-					host, port = self.conf_data.nodelist[node]
+				for node, seq in rep_since.iteritems():
+					print "Node %s from %d" % (node, seq)
+					host, port = self.conf_data.nodelist[int(node)]
 					yield ("http://%s:%d/%s/_changes?since=%s&%s" %
-					       (host, port, shard, since[shard_id][str(node)], qs))
+					       (host, port, shard, seq, qs))
 			shard_channel = shard_proxy.createChannel(shard_id)
 			rep_proxy = reducer.ChangesProxy(shard_channel,
 							 since[shard_id])
 
-			channels = (streaming.LinePCP(rep_proxy.createChannel(node),
-						      xform = input_transformation) for node in node_ids)
+			channels = (streaming.LinePCP(rep_proxy.createChannel(rep),
+						      xform = input_transformation)
+				    for rep in rep_since.iterkeys())
 
 			deferred_reps = getPageFromAll(
 				itertools.izip(
+					rep_since.iterkeys(),
 					urlGen(),
 					([c] for c in channels),
 					itertools.repeat(kwargs)),
@@ -448,7 +447,7 @@ class SmartproxyResource(resource.Resource):
 					      fireOnOneErrback=1,
 					      fireOnOneCallback=1,
 					      consumeErrors=1)
-		deferred.addBoth(cancel_firehose)
+		deferred.addBoth(finish_firehose)
 		return server.NOT_DONE_YET
 	
 	def render_changes(self, request):
@@ -717,7 +716,7 @@ class SmartproxyResource(resource.Resource):
 		def fold_results_fun(acc, result):
 			print result
 			result, shard_idx = result             #packed by DeferredList
-			factory, result, rep_idx = result      #packed by getPageFromAny
+			result, rep_idx, factory = result      #packed by getPageFromAny
 			result = cjson.decode(result)
 			acc['doc_count'] += result['doc_count']
 			acc['doc_del_count'] += result['doc_del_count']
@@ -751,14 +750,16 @@ class SmartproxyResource(resource.Resource):
 		# error callback
 		def handle_error(reason):
 			reason, shard_idx = reason.value
+			# Nest try because python 2.4 doesn't fully support try-except-finally
 			try:
-				reason.trap(error.Error) # trap http error from subrequest
-				request.setResponseCode(int(reason.status))
-				request.write(reason.response)
-			except:
-				# if we get back some non-http response type error, we should
-				# return 500
-				request.setResponseCode(http.INTERNAL_SERVER_ERROR)
+				try:
+					reason.trap(error.Error) # trap http error from subrequest
+					request.setResponseCode(int(reason.status))
+					request.write(reason.response)
+				except:
+					# if we get back some non-http response type error, we should
+					# return 500
+					request.setResponseCode(http.INTERNAL_SERVER_ERROR)
 			finally:
 				request.finish()
 		
@@ -770,10 +771,12 @@ class SmartproxyResource(resource.Resource):
 			# map over all the shards and get a deferred that handles fail-over
 			map(lambda s, rl: getPageFromAny(
 					# create the upstream descriptions by mapping over the replica list
-					itertools.imap(lambda r: ("http://%s:%s/%s%d"
-								  % (nodes[r][0], nodes[r][1], db_name, s),
-								  [],   # factory args
-								  {}),  # factor kwargs
+					itertools.imap(lambda r:
+						       (r,    # upstream identifier
+							"http://%s:%s/%s%d" #url
+							% (nodes[r][0], nodes[r][1], db_name, s),
+							[],   # factory args
+							{}),  # factor kwargs
 						       rl)),
 					xrange(len(self.conf_data.shardmap)),
 					self.conf_data.shardmap),
