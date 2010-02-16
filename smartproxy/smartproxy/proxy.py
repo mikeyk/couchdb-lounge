@@ -736,8 +736,8 @@ class SmartproxyResource(resource.Resource):
 					 'compact_running': [],
 					 'disk_size': 0})
 			# encode the sequence information
-			output['update_seq'] = base64.urlsafe_b64encode(zlib.compress(cjson.encode(output['update_seq'])))
-			output['purge_seq'] = base64.urlsafe_b64encode(zlib.compress(cjson.encode(output['purge_seq'])))
+			output['update_seq'] = base64.urlsafe_b64encode(zlib.compress(cjson.encode(output['update_seq']), 1))
+			output['purge_seq'] = base64.urlsafe_b64encode(zlib.compress(cjson.encode(output['purge_seq']), 1))
 			request.write(cjson.encode(output) + '\n')
 			request.finish()
 
