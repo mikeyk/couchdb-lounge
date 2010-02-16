@@ -710,12 +710,12 @@ class SmartproxyResource(resource.Resource):
 		def fold_results_fun(acc, result):
 			print result
 			result, shard_idx = result             #packed by DeferredList
-			result, rep_idx, factory = result      #packed by getPageFromAny
+			result, node_idx, factory = result     #packed by getPageFromAny
 			result = cjson.decode(result)
 			acc['doc_count'] += result['doc_count']
 			acc['doc_del_count'] += result['doc_del_count']
-			acc['update_seq'][str(shard_idx)] = {str(rep_idx): result['update_seq']}
-			acc['purge_seq'][str(shard_idx)] = {str(rep_idx): result['purge_seq']}
+			acc['update_seq'][str(shard_idx)] = {str(node_idx): result['update_seq']}
+			acc['purge_seq'][str(shard_idx)] = {str(node_idx): result['purge_seq']}
 			acc['compact_running'].append(result['compact_running'])
 			acc['disk_size'] += result['disk_size']
 			return acc
