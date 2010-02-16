@@ -406,20 +406,14 @@ class SmartproxyResource(resource.Resource):
 			json_output.unregisterProducer()
 			shard_proxy.finish() # this will finish the request
 
-		shard_info_list = itertools.izip(since.itervalues(),
-						 shards,
-						 itertools.imap(str,
-							       itertools.count()))
-		for rep_since, shard, shard_id in shard_info_list:
+		for shard_id, rep_since in since.iteritems():
 			qs = urllib.urlencode([(k,v) for k in request.args for v in request.args[k]])
 
-			print "Shard %s" % shard_id
 			def urlGen():
 				for node, seq in rep_since.iteritems():
-					print "Node %s from %d" % (node, seq)
 					host, port = self.conf_data.nodelist[int(node)]
 					yield ("http://%s:%d/%s/_changes?since=%s&%s" %
-					       (host, port, shard, seq, qs))
+					       (host, port, shards[int(shard_id)], seq, qs))
 			shard_channel = shard_proxy.createChannel(shard_id)
 			rep_proxy = reducer.ChangesProxy(shard_channel,
 							 since[shard_id])
