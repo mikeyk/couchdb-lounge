@@ -9,6 +9,6 @@ Homepage: <insert the upstream URL, if relevant>
 Package: couchdb-lounge
 Architecture: any
 #Depends: ${shlibs:Depends}, ${misc:Depends}, pcre3-dev, python-cjson
-Depends: libpcre3-dev, python-cjson, python-twisted, python-simplejson, python-pyicu
+Depends: libpcre3-dev, python-cjson, python-twisted, python-pyicu
 Description: <insert up to 60 chars description>
  <insert long description, indented with spaces>

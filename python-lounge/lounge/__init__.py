@@ -1,5 +1,5 @@
 import re
-import simplejson
+import cjson
 
 class ShardMap(object):
 	def __init__(self, fname=None):
@@ -9,7 +9,7 @@ class ShardMap(object):
 		self.get_db_shard = re.compile(r'^(.*\D)(\d+)$')
 	
 	def load_config(self, fname):
-		self.config = simplejson.loads(file(fname).read())
+		self.config = cjson.decode(file(fname).read())
 		self.shardmap = self.config["shard_map"]
 		self.nodelist = self.config["nodes"]
 	

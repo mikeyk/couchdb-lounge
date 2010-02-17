@@ -3,7 +3,7 @@
 import logging
 import os
 import pycurl
-import simplejson
+import cjson
 import StringIO
 import urllib
 import urllib2
@@ -16,7 +16,7 @@ import process
 class Response:
 	def __init__(self, code, body, headers):
 		self.code = code
-		self.body = simplejson.loads(body)
+		self.body = cjson.decode(body)
 		self.headers = headers
 
 def req(url, method, body=None, headers=None):
@@ -26,7 +26,7 @@ def req(url, method, body=None, headers=None):
 	curl.setopt(pycurl.WRITEFUNCTION, outbuf.write)
 
 	if body is not None:
-		body = simplejson.dumps(body)
+		body = cjson.encode(body)
 		if method=='POST':
 			curl.setopt(pycurl.POSTFIELDS, body)
 		else:
@@ -191,7 +191,7 @@ class ProxyTest(TestCase):
 			],last_seq=14),headers={"Content-Type": "text/plain;charset=utf8"})
 		be2.listen("localhost", 34567)
 
-		resp = get("http://localhost:22008/funstuff/_changes?since=%s" % urllib.quote(simplejson.dumps([5,12])))
+		resp = get("http://localhost:22008/funstuff/_changes?since=%s" % urllib.quote(cjson.encode([5,12])))
 
 		be1.verify()
 		be2.verify()
@@ -206,7 +206,7 @@ class ProxyTest(TestCase):
 		# the order the rows arrive is non-deterministic
 		seq = [5,12]
 		def encode(lst):
-			return simplejson.dumps(seq)
+			return cjson.encode(seq)
 		for row in res:
 			if row["id"] in ["mywallet", "elsegundo"]:
 				seq[0] += 1

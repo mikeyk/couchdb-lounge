@@ -330,7 +330,7 @@ class Reducer:
 			args = [ (key, ["rereduce", [self.reduce_func], to_reducelist(chunk)]) for key,chunk in split_by_key(inp["rows"])]
 			lines = [cjson.encode(chunk) for key, chunk in args]
 			keys = [key for key,chunk in args]
-			#TODO: maybe this could be lines,keys = zip(*(key, simplejson.dumps(chunk) for key, chunk in args))
+			#TODO: maybe this could be lines,keys = zip(*(key, cjson.encode(chunk) for key, chunk in args))
 			self.reduces_out += 1
 			self.reduce_queue.enqueue(keys, lines, self.process_reduce)
 		else:

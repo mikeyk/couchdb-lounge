@@ -14,7 +14,7 @@
 #limitations under the License.
 
 from urllib import urlopen, urlencode
-import simplejson
+import cjson
 import logging
 import time
 import lounge
@@ -39,7 +39,7 @@ def get_all_dbs():
 	except:
 		logging.error("Failed to retrieve the database list from the local couch node")
 		raise
-	db_json = simplejson.loads(x)
+	db_json = cjson.decode(x)
 	return db_json
 
 
@@ -55,7 +55,7 @@ def get_all_design_docs(db):
 	except IOError:
 		logging.exception("Failed trying to fetch %s" % url)
 		return []
-	design_doc_json = simplejson.loads(x)
+	design_doc_json = cjson.decode(x)
 	design_docs = []
 	if 'rows' not in design_doc_json:
 		logging.info ("No design docs in %s" % db)
@@ -79,7 +79,7 @@ def get_views(db, design_doc):
 	except IOError:
 		logging.exception("Failed trying to fetch %s" % url)
 		return []
-	design_doc_json = simplejson.loads(x)
+	design_doc_json = cjson.decode(x)
 	if "views" in design_doc_json:
 		return design_doc_json['views'].keys()
 	else:

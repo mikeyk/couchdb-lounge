@@ -1,4 +1,4 @@
-import simplejson
+import cjson
 import socket
 import threading
 import time
@@ -80,7 +80,7 @@ class Request:
 
   def reply(self, code, body, headers={}, delay=0):
     self.responsecode = code
-    self.responsebody = simplejson.dumps(body)
+    self.responsebody = cjson.encode(body)
     self.responseheaders = headers
     self.delay = delay
     if 'content-type' not in [k.lower() for k in self.responseheaders.keys()]:

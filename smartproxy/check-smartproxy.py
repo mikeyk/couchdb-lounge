@@ -10,8 +10,6 @@ import time
 import traceback
 import urllib
 
-import simplejson
-
 from email.Utils import COMMASPACE
 from lounge.prefs import Prefs
 
