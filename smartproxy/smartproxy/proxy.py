@@ -404,7 +404,21 @@ class SmartproxyResource(resource.Resource):
 			# twisted's BasicProducerConsumerProxy foolishly calls finish on the 
 			# consumer before unregistering, generating warnings on the request
 			json_output.unregisterProducer()
-			shard_proxy.finish() # this will finish the request
+			# wrap try/finally for python 2.4 compatibility
+			try:
+				try:
+					reason.trap(error.Error) # trap http error
+					request.setResponseCode(int(reason.value.status))
+					if reason.value.status == '404':
+						request.write('{"error": "not_found", "reason": "no_db_file"}')
+					else:
+						request.write('{"error": "unknown"}') # good enough
+					request.write('\n')
+				except:
+					# otherwise clean closure, finish -> write last_seq
+					shard_proxy.finish()
+			finally:
+				request.finish()
 
 		for shard_id, rep_since in since.iteritems():
 			qs = urllib.urlencode([(k,v) for k in request.args for v in request.args[k]])

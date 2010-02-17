@@ -428,7 +428,11 @@ class ChangesProxy(streaming.MultiPCP):
 		elif 'last_seq' in data:
 			self.finish()
 		else:
-			self.consumer.write(data)
+			# don't write here!
+			# this would be an error message
+			# if we write anything, we'll automatically give a 200 code
+			# we need to fake the error response somewhere else
+			pass
 
 	def finish(self):
 		if self.consumer is not None:
