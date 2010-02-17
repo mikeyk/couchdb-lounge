@@ -24,6 +24,8 @@ import urllib
 from cjson import DecodeError
 
 db_config = {
+	'prod': 'http://lounge:6984/',
+	'dev': 'http://lounge.dev.meebo.com:6984/',
 	'local': 'http://localhost:5984/',
 	}
 db_connectinfo = None
