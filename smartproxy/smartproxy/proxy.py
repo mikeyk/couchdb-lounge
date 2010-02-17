@@ -411,9 +411,11 @@ class SmartproxyResource(resource.Resource):
 					request.setResponseCode(int(reason.value.status))
 					if reason.value.status == '404':
 						request.write('{"error": "not_found", "reason": "no_db_file"}')
+						request.write('\n')
 					else:
 						request.write('{"error": "unknown"}') # good enough
-					request.write('\n')
+						request.write('\n')
+						reason.raiseException()
 				except:
 					# otherwise clean closure, finish -> write last_seq
 					shard_proxy.finish()
@@ -768,6 +770,7 @@ class SmartproxyResource(resource.Resource):
 					# if we get back some non-http response type error, we should
 					# return 500
 					request.setResponseCode(http.INTERNAL_SERVER_ERROR)
+					reason.raiseException()
 			finally:
 				request.finish()
 		
