@@ -743,13 +743,13 @@ class SmartproxyResource(resource.Resource):
 
 		# error callback
 		def handle_error(reason):
-			reason, shard_idx = reason.value
+			reason = reason.value.subFailure # unpack FirstError from DeferredList
 			# Nest try because python 2.4 doesn't fully support try-except-finally
 			try:
 				try:
 					reason.trap(error.Error) # trap http error from subrequest
-					request.setResponseCode(int(reason.status))
-					request.write(reason.response)
+					request.setResponseCode(int(reason.value.status))
+					request.write(reason.value.response)
 				except:
 					# if we get back some non-http response type error, we should
 					# return 500
