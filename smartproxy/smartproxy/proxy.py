@@ -368,9 +368,12 @@ class SmartproxyResource(resource.Resource):
 		heartbeat = None
 		if 'heartbeat' in request.args:
 			heartbeat = task.LoopingCall(lambda: request.write('\n'))
-			heartbeat.start(int(request.args['heartbeat'][-1]) / 1000)
-			del request.args['heartbeat']
-
+			if request.args['heartbeat'][-1] == 'true':
+				heartbeat.start(60) # default 1 bpm
+			else:
+				heartbeat.start(int(request.args['heartbeat'][-1]) / 1000)
+			request.args['heartbeat'] = ['true'] # uses httpd:changes_timeout config in couch
+			
 		kwargs = {'headers': request.getAllHeaders()}
 
 		def output_transformation(line):
