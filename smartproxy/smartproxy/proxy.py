@@ -403,10 +403,6 @@ class SmartproxyResource(resource.Resource):
 				heartbeat.stop()
 			# stop the remaining channels
 			shard_proxy.stopProducing()
-			# unregister explicitly
-			# twisted's BasicProducerConsumerProxy foolishly calls finish on the 
-			# consumer before unregistering, generating warnings on the request
-			json_output.unregisterProducer()
 			# wrap try/finally for python 2.4 compatibility
 			try:
 				try:
@@ -420,9 +416,11 @@ class SmartproxyResource(resource.Resource):
 						request.write('\n')
 						reason.raiseException()
 				except:
-					# otherwise clean closure, finish -> write last_seq
-					shard_proxy.finish()
+					# otherwise clean closure
+					shard_proxy.finish() # writes last_seq
 			finally:
+				json_output.finish()
+				request.unregisterProducer()
 				request.finish()
 
 		for shard_id, rep_since in since.iteritems():
