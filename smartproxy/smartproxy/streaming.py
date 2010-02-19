@@ -169,8 +169,7 @@ class MultiPCP(pcp.BasicProducerConsumerProxy):
 		warnings.warn("directly registering producers with MultiPCP objects is not supported, use createChannel() instead", category=RuntimeWarning)
 
 	def unregisterProducer(self):
-		raise RuntimeError, "You fail dude"
-		warnings.warn("directly unregistering producers with MultiPCP objects is not supported, use createChannel() instead", category=RuntimeWarning)
+		warnings.warn("directly unregistering producers with MultiPCP objects is not supported, use deleteChannel() instead", category=RuntimeWarning)
 
 class LinePCP(pcp.BasicProducerConsumerProxy):
 	def __init__(self, consumer, xform=lambda x: x + '\n'):
@@ -179,6 +178,12 @@ class LinePCP(pcp.BasicProducerConsumerProxy):
 
 	def write(self, data):
 		pcp.BasicProducerConsumerProxy.write(self, self.xform(data))
+
+	def finish(self):
+		if self.consumer is not None:
+			self.consumer.unregisterProducer()
+			self.consumer.finish()
+			self.consumer = None
 
 
 # vi: noexpandtab ts=4 sts=4 sw=4
