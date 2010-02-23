@@ -514,6 +514,7 @@ class DesignDoc(Document):
 		return db_connectinfo + self._db_name + '/' + self._key
 
 class TuplyDict(object):
+
 	def __init__(self, row_dict):
 		self._dict = row_dict
 		
@@ -541,6 +542,12 @@ class TuplyDict(object):
 	@property
 	def _keyvalue(self):
 		return (self._dict['key'], self._dict['value'])
+
+	def __repr__(self):
+		return "TuplyDict(%s)" % repr(self._dict)
+
+	def __str__(self):
+		return str(self._dict)
 
 class View(Resource):
 	def __init__(self, db_name):
